@@ -82,6 +82,7 @@ export default function App() {
             step={snap?.currentNarrativeStep ?? null}
             onNext={sim.nextNarrative}
             autoPlay={sim.runtime.narrativeAutoPlay}
+            activeLayer={snap?.layerMode ?? "physical"}
           />
         </div>
         <SidePanel timeline={snap?.timeline ?? []} selected={selected} />

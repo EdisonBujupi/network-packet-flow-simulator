@@ -39,6 +39,13 @@ function packetLabel(p: VisualPacket, mode: LayerMode): string {
     : `${shortenIp(RECEIVER_IP)}→${shortenIp(SENDER_IP)}`;
 }
 
+function layerTint(mode: LayerMode): string {
+  if (mode === "physical") return "rgba(16,185,129,0.14)";
+  if (mode === "ip") return "rgba(59,130,246,0.12)";
+  if (mode === "tcp") return "rgba(34,211,238,0.12)";
+  return "rgba(168,85,247,0.12)";
+}
+
 function edgeEndpoints(
   p: VisualPacket,
   nodes: NodeLayout[],
@@ -67,6 +74,7 @@ export function drawNetwork(
   w: number,
   h: number,
   snap: CanvasSimSnapshot,
+  frameTimeSec = 0,
 ): void {
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#070b14";
@@ -75,8 +83,10 @@ export function drawNetwork(
   const nodes = layoutNodes(w, h);
   const narrative = snap.currentNarrativeStep;
 
+  ctx.fillStyle = layerTint(snap.layerMode);
+  ctx.fillRect(0, 0, w, h);
   if (narrative) {
-    ctx.fillStyle = "rgba(2,6,23,0.35)";
+    ctx.fillStyle = "rgba(2,6,23,0.22)";
     ctx.fillRect(0, 0, w, h);
   }
 
@@ -132,9 +142,10 @@ export function drawNetwork(
   /** Nodes */
   for (const n of nodes) {
     const activeNode = narrative?.location === n.label;
+    const pulse = activeNode ? 0.7 + 0.3 * Math.sin(frameTimeSec * 6) : 1;
     ctx.fillStyle = activeNode ? "#15304f" : "#0f172a";
     ctx.strokeStyle = activeNode ? "#fbbf24" : "#22d3ee";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = activeNode ? 2.8 * pulse : 2;
     ctx.beginPath();
     ctx.arc(n.x, n.y, 22, 0, Math.PI * 2);
     ctx.fill();
@@ -166,17 +177,20 @@ export function drawNetwork(
     const alpha = p.lost ? p.fade : 1;
     ctx.globalAlpha = alpha;
 
-    /** motion trail */
     const edge = edgeEndpoints(p, nodes);
-    ctx.strokeStyle = p.kind === "ack" ? "rgba(167,139,250,0.35)" : "rgba(34,211,238,0.35)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(edge.x0, edge.y0);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
+    if (snap.layerMode !== "application") {
+      ctx.strokeStyle = p.kind === "ack" ? "rgba(167,139,250,0.35)" : "rgba(34,211,238,0.35)";
+      if (snap.layerMode === "physical") ctx.strokeStyle = "rgba(16,185,129,0.42)";
+      if (snap.layerMode === "ip") ctx.strokeStyle = "rgba(96,165,250,0.36)";
+      ctx.lineWidth = snap.layerMode === "physical" ? 1.2 : 2;
+      ctx.beginPath();
+      ctx.moveTo(edge.x0, edge.y0);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
 
-    const wBox = 76;
-    const hBox = 28;
+    const wBox = snap.layerMode === "physical" ? 18 : 76;
+    const hBox = snap.layerMode === "physical" ? 18 : 28;
     const x = pos.x - wBox / 2;
     const y = pos.y - hBox / 2;
 
@@ -194,28 +208,50 @@ export function drawNetwork(
       ctx.strokeStyle = "rgba(34,211,238,0.95)";
     }
 
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    if (typeof ctx.roundRect === "function") {
-      ctx.roundRect(x, y, wBox, hBox, 6);
+    if (snap.layerMode === "physical") {
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(16,185,129,0.85)";
+      ctx.font = "500 10px JetBrains Mono, ui-monospace, monospace";
+      ctx.fillText("1010", pos.x + 12, pos.y - 10);
     } else {
-      ctx.rect(x, y, wBox, hBox);
-    }
-    ctx.fill();
-    ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(x, y, wBox, hBox, 6);
+      } else {
+        ctx.rect(x, y, wBox, hBox);
+      }
+      ctx.fill();
+      ctx.stroke();
 
-    ctx.fillStyle = p.lost ? "#fecaca" : "#f1f5f9";
-    ctx.font = "500 10px JetBrains Mono, ui-monospace, monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const line1 = packetLabel(p, snap.layerMode);
-    ctx.fillText(line1, pos.x, pos.y - 5);
-    ctx.font = "400 9px JetBrains Mono, ui-monospace, monospace";
-    ctx.fillStyle = "rgba(148,163,184,0.95)";
-    if (snap.layerMode === "ip") {
-      ctx.fillText(p.kind === "data" ? SENDER_IP : RECEIVER_IP, pos.x, pos.y + 8);
-    } else {
-      ctx.fillText(p.kind === "data" ? `→ ${RECEIVER_IP}` : `→ ${SENDER_IP}`, pos.x, pos.y + 8);
+      ctx.fillStyle = p.lost ? "#fecaca" : "#f1f5f9";
+      ctx.font = "500 10px JetBrains Mono, ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const line1 = packetLabel(p, snap.layerMode);
+      ctx.fillText(line1, pos.x, pos.y - 5);
+      ctx.font = "400 9px JetBrains Mono, ui-monospace, monospace";
+      ctx.fillStyle = "rgba(148,163,184,0.95)";
+      if (snap.layerMode === "ip") {
+        ctx.fillText(`${p.srcIp} -> ${p.dstIp}`, pos.x, pos.y + 8);
+      } else if (snap.layerMode === "tcp") {
+        ctx.fillText(
+          p.kind === "data"
+            ? `SEG#${p.segmentIndex + 1} ${p.retransmitGen > 0 ? "RTX" : ""}`
+            : `ACK ${p.ack}`,
+          pos.x,
+          pos.y + 8,
+        );
+      } else {
+        ctx.fillText(
+          p.kind === "data" ? "HTTP request bytes" : "HTTP response/ACK",
+          pos.x,
+          pos.y + 8,
+        );
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -227,11 +263,21 @@ export function drawNetwork(
   ctx.textBaseline = "top";
   ctx.fillText(snap.statusLine, 12, 10);
   ctx.fillStyle = "rgba(148,163,184,0.8)";
-  ctx.fillText(
-    `t=${snap.time.toFixed(2)}s inFlight=${snap.metrics.inFlight} loss=${(snap.metrics.lossRate * 100).toFixed(1)}%`,
-    12,
-    24,
-  );
+  if (snap.layerMode === "physical") {
+    ctx.fillText("Physical view: signal pulses/bits on links (no packet headers).", 12, 24);
+  } else if (snap.layerMode === "ip") {
+    ctx.fillText("IP view: routed packet units with source/destination addressing.", 12, 24);
+  } else if (snap.layerMode === "tcp") {
+    ctx.fillText("TCP view: segmentation, seq/ack reliability, retransmission emphasis.", 12, 24);
+    ctx.fillText(`inFlight=${snap.metrics.inFlight} retrans=${snap.metrics.totalRetransmit}`, 12, 38);
+  } else {
+    ctx.fillText("Application view: request/response meaning over transport.", 12, 24);
+    const y = 40;
+    ctx.fillStyle = "rgba(196,181,253,0.95)";
+    ctx.fillText(`DNS ${snap.protocolState.dnsDone ? "resolved" : "pending"}`, 12, y);
+    ctx.fillText(`TLS ${snap.protocolState.tlsDone ? "handshake done" : "handshake..."}`, 160, y);
+    ctx.fillText(`HTTP ${snap.protocolState.httpResponseReceived ? "200 OK" : "requesting..."}`, 350, y);
+  }
 }
 
 /** Hit test for optional selection (canvas coords) */

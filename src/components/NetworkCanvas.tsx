@@ -43,7 +43,7 @@ export function NetworkCanvas({ simRef }: { simRef: MutableRefObject<CanvasSimul
       const rect = canvas.getBoundingClientRect();
       const w = Math.max(1, rect.width);
       const h = Math.max(1, rect.height);
-      if (sim) drawNetwork(ctx, w, h, sim.snapshot());
+      if (sim) drawNetwork(ctx, w, h, sim.snapshot(), now / 1000);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);

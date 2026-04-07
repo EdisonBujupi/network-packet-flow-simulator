@@ -198,6 +198,7 @@ export class CanvasSimulation {
 
   private narrativeQueue: NarrativeStep[] = [];
   private currentNarrativeStep: NarrativeStep | null = null;
+  private narrativeAutoUntil = 0;
 
   private storyMode = false;
   private storyStage: 0 | 1 | 2 = 0;
@@ -242,21 +243,26 @@ export class CanvasSimulation {
   }
 
   pauseAtNarrativeStep(step: NarrativeStep): void {
+    this.layerMode = step.layer;
     this.currentNarrativeStep = step;
-    if (this.runtime.narrativeAutoPlay) return;
+    if (this.runtime.narrativeAutoPlay) {
+      this.narrativeAutoUntil = this.time + 1.15 / Math.max(0.2, this.runtime.timeScale);
+      return;
+    }
     this.phase = "paused";
   }
 
   resumeFromNarrative(): void {
     if (!this.currentNarrativeStep) return;
     this.currentNarrativeStep = null;
+    this.narrativeAutoUntil = 0;
     if (this.phase === "paused") this.phase = "running";
   }
 
   nextNarrativeStep(): void {
     if (this.currentNarrativeStep) {
-      this.resumeFromNarrative();
-      return;
+      this.currentNarrativeStep = null;
+      this.narrativeAutoUntil = 0;
     }
     const next = this.narrativeQueue.shift() ?? null;
     if (!next) {
@@ -349,6 +355,7 @@ export class CanvasSimulation {
     this.selectedPacketId = null;
     this.currentNarrativeStep = null;
     this.narrativeQueue = [];
+    this.narrativeAutoUntil = 0;
 
     this.rng = mulberry32(
       this.config.message.length * 7919 + Math.floor(this.config.packetLoss * 10000),
@@ -593,15 +600,22 @@ export class CanvasSimulation {
   }
 
   tick(dt: number): void {
+    if (
+      this.runtime.narrativeAutoPlay &&
+      this.currentNarrativeStep &&
+      this.phase === "running" &&
+      this.time >= this.narrativeAutoUntil
+    ) {
+      this.currentNarrativeStep = null;
+      const next = this.narrativeQueue.shift() ?? null;
+      if (next) this.pauseAtNarrativeStep(next);
+    }
+
     if (this.phase !== "running") return;
 
     const scaledDt = dt * Math.max(0.1, this.runtime.timeScale);
     const hopSec = BASE_HOP_SEC / Math.max(0.25, this.config.speedFactor);
     this.time += scaledDt;
-
-    if (this.runtime.narrativeAutoPlay && this.currentNarrativeStep) {
-      this.currentNarrativeStep = null;
-    }
 
     this.processScheduled();
 
