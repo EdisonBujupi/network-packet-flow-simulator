@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CanvasSimulation } from "../simulation/canvasSim";
 import type { LayerMode } from "../simulation/canvasSim";
+import type { RuntimeControls } from "../simulation/canvasSim";
 import type { SimulationConfig } from "../simulation/types";
 
 const defaultConfig: SimulationConfig = {
@@ -21,6 +22,12 @@ export function useCanvasSimulation() {
 
   const [config, setConfigState] = useState<SimulationConfig>(defaultConfig);
   const [lossEnabled, setLossEnabled] = useState(true);
+  const [runtime, setRuntime] = useState<RuntimeControls>({
+    timeScale: 1,
+    stepMode: false,
+    pauseOnLoss: false,
+    pauseOnRetransmit: false,
+  });
   /** Throttled UI refresh for sidebar (canvas draws every frame independently) */
   const [ui, setUi] = useState(0);
   const bump = useCallback(() => setUi((x) => x + 1), []);
@@ -79,6 +86,22 @@ export function useCanvasSimulation() {
     [bump],
   );
 
+  const setRuntimeControl = useCallback((patch: Partial<RuntimeControls>) => {
+    setRuntime((prev) => {
+      const next = { ...prev, ...patch };
+      simRef.current?.configureRuntime(next);
+      return next;
+    });
+  }, []);
+
+  const step = useCallback(() => {
+    const sim = simRef.current;
+    if (!sim) return;
+    sim.configureRuntime({ stepMode: true });
+    sim.requestStep(0.36);
+    bump();
+  }, [bump]);
+
   const phase = snapshot?.phase;
   const running = phase === "running";
   const paused = phase === "paused";
@@ -95,6 +118,9 @@ export function useCanvasSimulation() {
     resume,
     reset,
     setLayerMode,
+    runtime,
+    setRuntimeControl,
+    step,
     running,
     paused,
     bump,

@@ -29,7 +29,10 @@ function packetLabel(p: VisualPacket, mode: LayerMode): string {
     return p.kind === "data" ? `D${p.segmentIndex + 1}` : `ACK${p.ack}`;
   }
   if (mode === "tcp") {
-    return p.kind === "data" ? `SEQ ${p.seq}` : `ACK ${p.ack}`;
+    return p.kind === "data" ? `${p.seqStart}-${p.seqEnd}` : `ACK ${p.ack}`;
+  }
+  if (mode === "application") {
+    return p.kind === "data" ? "HTTP req payload" : "HTTP response / ACK";
   }
   return p.kind === "data"
     ? `${shortenIp(SENDER_IP)}→${shortenIp(RECEIVER_IP)}`
@@ -95,6 +98,31 @@ export function drawNetwork(
   ctx.stroke();
   ctx.setLineDash([]);
 
+  /** Selected packet path highlight */
+  const selected = snap.selectedPacketId
+    ? snap.packets.find((p) => p.id === snap.selectedPacketId) ?? null
+    : null;
+  if (selected) {
+    ctx.strokeStyle = "rgba(251,191,36,0.45)";
+    ctx.lineWidth = 7;
+    ctx.lineCap = "round";
+    if (selected.kind === "data") {
+      for (let i = 0; i < nodes.length - 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(nodes[i]!.x, nodes[i]!.y);
+        ctx.lineTo(nodes[i + 1]!.x, nodes[i + 1]!.y);
+        ctx.stroke();
+      }
+    } else {
+      for (let i = nodes.length - 1; i > 0; i--) {
+        ctx.beginPath();
+        ctx.moveTo(nodes[i]!.x, nodes[i]!.y);
+        ctx.lineTo(nodes[i - 1]!.x, nodes[i - 1]!.y);
+        ctx.stroke();
+      }
+    }
+  }
+
   /** Nodes */
   for (const n of nodes) {
     ctx.fillStyle = "#0f172a";
@@ -117,6 +145,15 @@ export function drawNetwork(
     const alpha = p.lost ? p.fade : 1;
     ctx.globalAlpha = alpha;
 
+    /** motion trail */
+    const edge = edgeEndpoints(p, nodes);
+    ctx.strokeStyle = p.kind === "ack" ? "rgba(167,139,250,0.35)" : "rgba(34,211,238,0.35)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(edge.x0, edge.y0);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+
     const wBox = 76;
     const hBox = 28;
     const x = pos.x - wBox / 2;
@@ -125,6 +162,9 @@ export function drawNetwork(
     if (p.lost) {
       ctx.fillStyle = "rgba(248,113,113,0.35)";
       ctx.strokeStyle = "rgba(248,113,113,0.9)";
+    } else if (p.lifecycle === "retransmitting") {
+      ctx.fillStyle = "rgba(251,191,36,0.22)";
+      ctx.strokeStyle = "rgba(251,191,36,0.95)";
     } else if (p.kind === "ack") {
       ctx.fillStyle = "rgba(167,139,250,0.25)";
       ctx.strokeStyle = "rgba(167,139,250,0.95)";
@@ -165,6 +205,12 @@ export function drawNetwork(
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillText(snap.statusLine, 12, 10);
+  ctx.fillStyle = "rgba(148,163,184,0.8)";
+  ctx.fillText(
+    `t=${snap.time.toFixed(2)}s inFlight=${snap.metrics.inFlight} cwnd=${snap.metrics.cwnd.toFixed(2)} dupACK=${snap.metrics.dupAckCount}`,
+    12,
+    24,
+  );
 }
 
 /** Hit test for optional selection (canvas coords) */

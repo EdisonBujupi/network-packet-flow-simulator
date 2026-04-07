@@ -23,10 +23,12 @@ export default function App() {
       const hit = hitTestPacket(simInst.snapshot(), rect.width, rect.height, x, y);
       if (!hit) {
         setSelected(null);
+        simInst.setSelectedPacket(null);
         return;
       }
+      simInst.setSelectedPacket(hit.id);
       setSelected(
-        `${hit.kind.toUpperCase()} ${hit.kind === "data" ? `seq=${hit.seq}` : `ack=${hit.ack}`} · ${hit.srcIp} → ${hit.dstIp}`,
+        `${hit.id} ${hit.kind.toUpperCase()} ${hit.kind === "data" ? `seq=${hit.seqStart}-${hit.seqEnd}` : `ack=${hit.ack}`} | ${hit.lifecycle} | ${hit.srcIp} -> ${hit.dstIp}`,
       );
     },
     [sim.simRef],
@@ -66,13 +68,21 @@ export default function App() {
             setLayerMode={sim.setLayerMode}
             running={sim.running}
             paused={sim.paused}
+            runtime={sim.runtime}
+            setRuntimeControl={sim.setRuntimeControl}
             onStart={sim.start}
             onPause={sim.pause}
             onResume={sim.resume}
+            onStep={sim.step}
             onReset={sim.reset}
           />
         </div>
-        <SidePanel timeline={snap?.timeline ?? []} selected={selected} />
+        <SidePanel
+          timeline={snap?.timeline ?? []}
+          selected={selected}
+          metrics={snap?.metrics ?? null}
+          protocolState={snap?.protocolState}
+        />
       </div>
 
       {result && (

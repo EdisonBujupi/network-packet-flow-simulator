@@ -1,4 +1,4 @@
-import type { LayerMode } from "../simulation/canvasSim";
+import type { LayerMode, RuntimeControls } from "../simulation/canvasSim";
 import type { SimulationConfig } from "../simulation/types";
 
 interface Props {
@@ -10,9 +10,12 @@ interface Props {
   setLayerMode: (m: LayerMode) => void;
   running: boolean;
   paused: boolean;
+  runtime: RuntimeControls;
+  setRuntimeControl: (patch: Partial<RuntimeControls>) => void;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
+  onStep: () => void;
   onReset: () => void;
 }
 
@@ -25,9 +28,12 @@ export function ControlBar({
   setLayerMode,
   running,
   paused,
+  runtime,
+  setRuntimeControl,
   onStart,
   onPause,
   onResume,
+  onStep,
   onReset,
 }: Props) {
   const busy = running && !paused;
@@ -63,6 +69,14 @@ export function ControlBar({
           type="button"
           className="rounded-md border border-slate-600 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-40"
           disabled={busy}
+          onClick={onStep}
+        >
+          Step
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-slate-600 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-40"
+          disabled={busy}
           onClick={onReset}
         >
           Reset
@@ -80,6 +94,18 @@ export function ControlBar({
           disabled={busy}
           onChange={(e) => setConfig({ speedFactor: Number(e.target.value) })}
           className="w-24"
+        />
+      </label>
+      <label className="flex items-center gap-2 text-[11px] text-slate-400">
+        Time scale
+        <input
+          type="range"
+          min={0.25}
+          max={3}
+          step={0.05}
+          value={runtime.timeScale}
+          onChange={(e) => setRuntimeControl({ timeScale: Number(e.target.value) })}
+          className="w-20"
         />
       </label>
 
@@ -105,6 +131,33 @@ export function ControlBar({
         <span className="w-8 tabular-nums text-slate-500">
           {Math.round(config.packetLoss * 100)}%
         </span>
+      </label>
+      <label className="flex items-center gap-2 text-[11px] text-slate-400">
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 rounded border-slate-600"
+          checked={runtime.stepMode}
+          onChange={(e) => setRuntimeControl({ stepMode: e.target.checked })}
+        />
+        Step mode
+      </label>
+      <label className="flex items-center gap-2 text-[11px] text-slate-400">
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 rounded border-slate-600"
+          checked={runtime.pauseOnLoss}
+          onChange={(e) => setRuntimeControl({ pauseOnLoss: e.target.checked })}
+        />
+        Pause on loss
+      </label>
+      <label className="flex items-center gap-2 text-[11px] text-slate-400">
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 rounded border-slate-600"
+          checked={runtime.pauseOnRetransmit}
+          onChange={(e) => setRuntimeControl({ pauseOnRetransmit: e.target.checked })}
+        />
+        Pause on retransmit
       </label>
 
       <label className="flex items-center gap-2 text-[11px] text-slate-400">
@@ -142,7 +195,7 @@ export function ControlBar({
 
       <div className="ml-auto flex items-center gap-1 text-[11px] text-slate-500">
         View:
-        {(["physical", "tcp", "ip"] as const).map((m) => (
+        {(["physical", "ip", "tcp", "application"] as const).map((m) => (
           <button
             key={m}
             type="button"
