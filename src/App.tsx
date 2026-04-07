@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { MouseEvent } from "react";
 import { ControlBar } from "./components/ControlBar";
+import { NarrativePanel } from "./components/NarrativePanel";
 import { NetworkCanvas } from "./components/NetworkCanvas";
 import { SidePanel } from "./components/SidePanel";
 import { hitTestPacket } from "./render/drawNetwork";
@@ -73,16 +74,17 @@ export default function App() {
             onStart={sim.start}
             onPause={sim.pause}
             onResume={sim.resume}
-            onStep={sim.step}
+            onNext={sim.nextNarrative}
+            onStoryMode={sim.storyMode}
             onReset={sim.reset}
           />
+          <NarrativePanel
+            step={snap?.currentNarrativeStep ?? null}
+            onNext={sim.nextNarrative}
+            autoPlay={sim.runtime.narrativeAutoPlay}
+          />
         </div>
-        <SidePanel
-          timeline={snap?.timeline ?? []}
-          selected={selected}
-          metrics={snap?.metrics ?? null}
-          protocolState={snap?.protocolState}
-        />
+        <SidePanel timeline={snap?.timeline ?? []} selected={selected} />
       </div>
 
       {result && (

@@ -13,15 +13,25 @@ export type PacketLifecycle =
   | "retransmitting"
   | "acknowledged"
   | "delivered";
-export type TimelineKind =
-  | "sent"
-  | "lost"
-  | "ack"
-  | "retransmit"
-  | "dup_ack"
-  | "protocol"
-  | "pause"
-  | "info";
+export type TimelineKind = "sent" | "lost" | "ack" | "retransmit" | "protocol" | "info";
+
+export interface NarrativeStep {
+  id:
+    | "app_start"
+    | "tcp_segment"
+    | "ip_wrap"
+    | "physical_send"
+    | "router_forward"
+    | "server_arrival"
+    | "ack_return"
+    | "complete"
+    | "arpanet_fail"
+    | "story_tcp_replay";
+  layer: LayerMode;
+  explanation: string;
+  packetState: string;
+  location: "CLIENT" | "ROUTER 1" | "ROUTER 2" | "SERVER";
+}
 
 export interface TimelineEntry {
   id: number;
@@ -57,9 +67,6 @@ export interface VisualPacket {
 export interface SimMetrics {
   now: number;
   inFlight: number;
-  cwnd: number;
-  ssthresh: number;
-  dupAckCount: number;
   totalSent: number;
   totalLost: number;
   totalRetransmit: number;
@@ -72,9 +79,8 @@ export interface SimMetrics {
 
 export interface RuntimeControls {
   timeScale: number;
-  stepMode: boolean;
-  pauseOnLoss: boolean;
-  pauseOnRetransmit: boolean;
+  narrativeEnabled: boolean;
+  narrativeAutoPlay: boolean;
 }
 
 export interface CanvasSimSnapshot {
@@ -96,6 +102,7 @@ export interface CanvasSimSnapshot {
     dnsCached: boolean;
     dnsTtlSec: number;
   };
+  currentNarrativeStep: NarrativeStep | null;
 }
 
 const EDGE_HOPS = 3;
@@ -151,12 +158,10 @@ export class CanvasSimulation {
   private timelineId = 0;
 
   private runtime: RuntimeControls = {
-    timeScale: 1,
-    stepMode: false,
-    pauseOnLoss: false,
-    pauseOnRetransmit: false,
+    timeScale: 0.75,
+    narrativeEnabled: true,
+    narrativeAutoPlay: false,
   };
-  private stepBudgetSec = 0;
 
   private payloads: string[] = [];
   private baseSeq = 1000;
@@ -169,16 +174,7 @@ export class CanvasSimulation {
   private tcpAcked: boolean[] = [];
   private udpGot: (string | undefined)[] = [];
   private sentAtBySegment = new Map<number, number>();
-  private retransmitAt: {
-    seg: SegmentSpec;
-    at: number;
-    fromDataLoss: boolean;
-    fast: boolean;
-  }[] = [];
-  private duplicateAckCounter = 0;
-  private lastAckNumber = this.baseSeq;
-  private cwnd = 1;
-  private ssthresh = 8;
+  private retransmitAt: { seg: SegmentSpec; at: number; fromDataLoss: boolean }[] = [];
   private avgRttMs = 0;
   private rttCount = 0;
 
@@ -200,6 +196,12 @@ export class CanvasSimulation {
   private scheduled: Scheduled[] = [];
   private appReady = false;
 
+  private narrativeQueue: NarrativeStep[] = [];
+  private currentNarrativeStep: NarrativeStep | null = null;
+
+  private storyMode = false;
+  private storyStage: 0 | 1 | 2 = 0;
+
   constructor(cfg: SimulationConfig) {
     this.config = { ...cfg };
     this.resetInternals();
@@ -219,11 +221,6 @@ export class CanvasSimulation {
     return { ...this.runtime };
   }
 
-  requestStep(seconds = 0.28): void {
-    this.stepBudgetSec += Math.max(0.05, seconds);
-    if (this.phase === "paused") this.phase = "running";
-  }
-
   setLayerMode(m: LayerMode): void {
     this.layerMode = m;
   }
@@ -232,12 +229,41 @@ export class CanvasSimulation {
     this.selectedPacketId = id;
   }
 
-  getConfig(): SimulationConfig {
-    return { ...this.config };
-  }
-
   getResult(): SimulationResult | null {
     return this.result;
+  }
+
+  startStoryMode(): void {
+    this.storyMode = true;
+    this.storyStage = 1;
+    this.phase = "idle";
+    this.setConfig({ message: "LOGIN", useTcp: false, arpanetMode: true, packetLoss: 0.18 });
+    this.start();
+  }
+
+  pauseAtNarrativeStep(step: NarrativeStep): void {
+    this.currentNarrativeStep = step;
+    if (this.runtime.narrativeAutoPlay) return;
+    this.phase = "paused";
+  }
+
+  resumeFromNarrative(): void {
+    if (!this.currentNarrativeStep) return;
+    this.currentNarrativeStep = null;
+    if (this.phase === "paused") this.phase = "running";
+  }
+
+  nextNarrativeStep(): void {
+    if (this.currentNarrativeStep) {
+      this.resumeFromNarrative();
+      return;
+    }
+    const next = this.narrativeQueue.shift() ?? null;
+    if (!next) {
+      if (this.phase === "paused") this.phase = "running";
+      return;
+    }
+    this.pauseAtNarrativeStep(next);
   }
 
   snapshot(): CanvasSimSnapshot {
@@ -252,12 +278,10 @@ export class CanvasSimulation {
       deliveredPreview: this.delivered,
       statusLine: this.statusLine(),
       selectedPacketId: this.selectedPacketId,
+      currentNarrativeStep: this.currentNarrativeStep,
       metrics: {
         now: this.time,
         inFlight: this.inFlight,
-        cwnd: this.cwnd,
-        ssthresh: this.ssthresh,
-        dupAckCount: this.duplicateAckCounter,
         totalSent: this.totalSent,
         totalLost: this.totalLost,
         totalRetransmit: this.totalRetransmit,
@@ -274,15 +298,21 @@ export class CanvasSimulation {
 
   private statusLine(): string {
     if (this.phase === "idle") return "Ready";
-    if (this.phase === "paused") return "Paused";
+    if (this.phase === "paused") return "Paused for explanation";
     if (this.phase === "done" && this.result) {
       return this.result.success
         ? `Done: delivered "${this.result.deliveredMessage}"`
         : `Stopped: delivered "${this.result.deliveredMessage}"`;
     }
-    return this.config.useTcp
-      ? `TCP cwnd=${this.cwnd.toFixed(2)} ssthresh=${this.ssthresh.toFixed(2)}`
-      : "No TCP mode (ARPANET-style best effort)";
+    return this.config.useTcp ? "TCP reliable transport" : "ARPANET-style unreliable transport";
+  }
+
+  private enqueueNarrative(step: NarrativeStep): void {
+    if (!this.runtime.narrativeEnabled) return;
+    this.narrativeQueue.push(step);
+    if (!this.currentNarrativeStep && this.phase === "running") {
+      this.nextNarrativeStep();
+    }
   }
 
   private resetInternals(): void {
@@ -298,10 +328,6 @@ export class CanvasSimulation {
     this.tcpAcked = [];
     this.udpGot = [];
     this.sentAtBySegment.clear();
-    this.duplicateAckCounter = 0;
-    this.lastAckNumber = this.baseSeq;
-    this.cwnd = 1;
-    this.ssthresh = 8;
     this.avgRttMs = 0;
     this.rttCount = 0;
     this.totalSent = 0;
@@ -321,6 +347,8 @@ export class CanvasSimulation {
     this.scheduled = [];
     this.appReady = false;
     this.selectedPacketId = null;
+    this.currentNarrativeStep = null;
+    this.narrativeQueue = [];
 
     this.rng = mulberry32(
       this.config.message.length * 7919 + Math.floor(this.config.packetLoss * 10000),
@@ -330,7 +358,7 @@ export class CanvasSimulation {
     let chunks = segmentPayload(msg, 3);
     if (!this.config.useTcp && this.config.arpanetMode) {
       chunks = [msg.slice(0, 2) || msg.slice(0, 1) || ""];
-      this.log("protocol", "ARPANET: partial payload only (e.g., LO).");
+      this.log("protocol", "ARPANET: only partial payload survives.");
     }
 
     this.payloads = chunks;
@@ -348,6 +376,8 @@ export class CanvasSimulation {
 
   reset(): void {
     this.phase = "idle";
+    this.storyMode = false;
+    this.storyStage = 0;
     this.resetInternals();
   }
 
@@ -355,10 +385,15 @@ export class CanvasSimulation {
     if (this.phase === "running") return;
     this.resetInternals();
     this.phase = "running";
-    this.log(
-      "info",
-      `Start ${this.payloads.length} segment(s), loss ${Math.round(this.config.packetLoss * 100)}%`,
-    );
+    this.log("info", `Start ${this.payloads.length} segment(s)`);
+    this.enqueueNarrative({
+      id: "app_start",
+      layer: "application",
+      explanation:
+        "The client application creates a message (for example, an HTTP request).",
+      packetState: `Message="${this.config.message || ""}"`,
+      location: "CLIENT",
+    });
     this.scheduleProtocolPrelude();
   }
 
@@ -374,7 +409,7 @@ export class CanvasSimulation {
 
   private scheduleProtocolPrelude(): void {
     const t0 = this.time;
-    const d = 0.28 / Math.max(0.2, this.runtime.timeScale);
+    const d = 0.34 / Math.max(0.2, this.runtime.timeScale);
     this.scheduled.push(
       { at: t0 + d, type: "dns_query" },
       { at: t0 + d * 2, type: "dns_answer" },
@@ -396,30 +431,27 @@ export class CanvasSimulation {
         case "dns_answer":
           this.protocol.dnsDone = true;
           this.protocol.dnsCached = true;
-          this.log(
-            "protocol",
-            `DNS answer cached (TTL ${this.protocol.dnsTtlSec}s): ${RECEIVER_IP}`,
-          );
+          this.log("protocol", `DNS answer cached (${RECEIVER_IP})`);
           break;
         case "tls_client_hello":
-          this.log("protocol", "TLS: ClientHello");
+          this.log("protocol", "TLS ClientHello");
           break;
         case "tls_server_hello":
-          this.log("protocol", "TLS: ServerHello + cert");
+          this.log("protocol", "TLS ServerHello");
           break;
         case "tls_keys_ready":
           this.protocol.tlsDone = true;
-          this.log("protocol", "TLS: keys established (encrypted app data)");
+          this.log("protocol", "TLS keys ready");
           break;
         case "http_request":
           this.protocol.httpRequestSent = true;
           this.appReady = true;
-          this.log("protocol", "HTTP request: GET /login");
+          this.log("protocol", "HTTP GET /login");
           this.launchTransportFlow();
           break;
         case "http_response":
           this.protocol.httpResponseReceived = true;
-          this.log("protocol", "HTTP response: 200 OK");
+          this.log("protocol", "HTTP 200 OK");
           break;
       }
     }
@@ -427,7 +459,7 @@ export class CanvasSimulation {
 
   private effectiveWindow(): number {
     if (!this.config.useTcp) return this.sendQueue.length;
-    return Math.max(1, Math.min(BASE_TCP_WINDOW, Math.floor(this.cwnd)));
+    return BASE_TCP_WINDOW;
   }
 
   private pumpTcpSends(): void {
@@ -443,6 +475,31 @@ export class CanvasSimulation {
   }
 
   private launchTransportFlow(): void {
+    this.enqueueNarrative({
+      id: "tcp_segment",
+      layer: "tcp",
+      explanation:
+        "TCP splits the message into segments and adds sequence numbers so missing pieces can be recovered.",
+      packetState: `Segments=${this.payloads.length}`,
+      location: "CLIENT",
+    });
+    this.enqueueNarrative({
+      id: "ip_wrap",
+      layer: "ip",
+      explanation:
+        "IP adds source and destination addresses so routers know where to forward the packet next.",
+      packetState: `${SENDER_IP} -> ${RECEIVER_IP}`,
+      location: "CLIENT",
+    });
+    this.enqueueNarrative({
+      id: "physical_send",
+      layer: "physical",
+      explanation:
+        "At the data-link and physical layers, frames are sent as bits over the link.",
+      packetState: "Frame emitted",
+      location: "CLIENT",
+    });
+
     if (!this.config.useTcp) {
       for (let i = 0; i < this.sendQueue.length; i++) {
         const s = this.sendQueue[i]!;
@@ -513,6 +570,14 @@ export class CanvasSimulation {
       ack,
       path: "SERVER->R2->R1->CLIENT",
     });
+    this.enqueueNarrative({
+      id: "ack_return",
+      layer: "tcp",
+      explanation:
+        "The server sends an ACK back to confirm receipt, allowing the client to move forward reliably.",
+      packetState: `ACK ${ack}`,
+      location: "SERVER",
+    });
   }
 
   private log(kind: TimelineKind, text: string, extra?: Omit<TimelineEntry, "id" | "t" | "kind" | "text">): void {
@@ -524,23 +589,19 @@ export class CanvasSimulation {
       text,
       ...extra,
     });
-    if (this.timeline.length > 350) this.timeline.shift();
+    if (this.timeline.length > 300) this.timeline.shift();
   }
 
   tick(dt: number): void {
     if (this.phase !== "running") return;
 
     const scaledDt = dt * Math.max(0.1, this.runtime.timeScale);
-    if (this.runtime.stepMode) {
-      if (this.stepBudgetSec <= 0) {
-        this.phase = "paused";
-        return;
-      }
-      this.stepBudgetSec -= scaledDt;
-    }
-
-    const hopSec = BASE_HOP_SEC / Math.max(0.1, this.config.speedFactor);
+    const hopSec = BASE_HOP_SEC / Math.max(0.25, this.config.speedFactor);
     this.time += scaledDt;
+
+    if (this.runtime.narrativeAutoPlay && this.currentNarrativeStep) {
+      this.currentNarrativeStep = null;
+    }
 
     this.processScheduled();
 
@@ -550,16 +611,11 @@ export class CanvasSimulation {
       if (!this.config.useTcp || this.config.arpanetMode) continue;
       if (this.tcpAcked[r.seg.index]) continue;
       this.totalRetransmit += 1;
-      if (this.runtime.pauseOnRetransmit) {
-        this.log("pause", "Paused on retransmit event.");
-        this.phase = "paused";
-      }
       r.seg.retransmits += 1;
       r.seg.sentAt = this.time;
       this.sentAtBySegment.set(r.seg.index, this.time);
       this.spawnData(r.seg, r.seg.index % MAX_PARALLEL, r.seg.retransmits);
-      if (r.fromDataLoss || r.fast) this.inFlight += 1;
-      if (this.phase !== "running") return;
+      if (r.fromDataLoss) this.inFlight += 1;
     }
 
     const step = scaledDt / hopSec;
@@ -581,11 +637,23 @@ export class CanvasSimulation {
           break;
         }
         p.hopIndex += 1;
-        if (p.kind === "data" && p.forward && p.hopIndex >= EDGE_HOPS) {
-          this.onDataArrived(p);
-          this.packets.splice(i, 1);
-          if (this.phase !== "running") return;
-          break;
+        if (p.kind === "data" && p.forward) {
+          if (p.hopIndex === 1) {
+            this.enqueueNarrative({
+              id: "router_forward",
+              layer: "ip",
+              explanation:
+                "Routers forward packets based on destination IP; they do not interpret application data.",
+              packetState: `Segment ${p.segmentIndex + 1}`,
+              location: "ROUTER 1",
+            });
+          }
+          if (p.hopIndex >= EDGE_HOPS) {
+            this.onDataArrived(p);
+            this.packets.splice(i, 1);
+            if (this.phase !== "running") return;
+            break;
+          }
         }
         if (p.kind === "ack" && !p.forward && p.hopIndex >= EDGE_HOPS) {
           this.onAckArrived(p);
@@ -605,23 +673,20 @@ export class CanvasSimulation {
     p.lost = true;
     p.lifecycle = "lost";
     this.totalLost += 1;
-    this.log(
-      "lost",
-      `${p.kind.toUpperCase()} lost (${p.kind === "data" ? `seq=${p.seq}` : `ack=${p.ack}`})`,
-      { packetId: p.id, seq: p.seq, ack: p.ack },
-    );
-    if (this.runtime.pauseOnLoss) {
-      this.log("pause", "Paused on packet loss.");
-      this.phase = "paused";
-    }
+    this.log("lost", `${p.kind.toUpperCase()} lost`, { packetId: p.id, seq: p.seq, ack: p.ack });
 
     if (p.kind === "data" && this.config.useTcp) {
-      this.ssthresh = Math.max(2, this.cwnd / 2);
-      this.cwnd = 1;
       if (this.config.arpanetMode) {
         this.crashed = true;
         this.delivered = this.payloads.slice(0, p.segmentIndex).join("");
-        this.log("info", "ARPANET crash: no retransmission safety.");
+        this.enqueueNarrative({
+          id: "arpanet_fail",
+          layer: "application",
+          explanation:
+            "Only part of the message arrived (LO). Early networks had no end-to-end reliability.",
+          packetState: `Delivered="${this.delivered}"`,
+          location: "SERVER",
+        });
         this.finish(false);
         return;
       }
@@ -639,7 +704,6 @@ export class CanvasSimulation {
           seg,
           at: this.time + 0.55 / Math.max(0.2, this.runtime.timeScale),
           fromDataLoss: true,
-          fast: false,
         });
       }
       this.inFlight = Math.max(0, this.inFlight - 1);
@@ -657,13 +721,21 @@ export class CanvasSimulation {
         seg,
         at: this.time + 0.45 / Math.max(0.2, this.runtime.timeScale),
         fromDataLoss: false,
-        fast: false,
       });
     }
   }
 
   private onDataArrived(p: VisualPacket): void {
     p.lifecycle = "delivered";
+    this.enqueueNarrative({
+      id: "server_arrival",
+      layer: "application",
+      explanation:
+        "The server receives the segment and TCP reassembles ordered data for the application.",
+      packetState: `Segment ${p.segmentIndex + 1} arrived`,
+      location: "SERVER",
+    });
+
     if (!this.config.useTcp) {
       const pl = this.payloads[p.segmentIndex] ?? "";
       this.udpGot[p.segmentIndex] = pl;
@@ -678,42 +750,7 @@ export class CanvasSimulation {
   private onAckArrived(p: VisualPacket): void {
     if (!this.config.useTcp) return;
     p.lifecycle = "acknowledged";
-    const isDup = p.ack <= this.lastAckNumber;
-    if (isDup) {
-      this.duplicateAckCounter += 1;
-      this.log("dup_ack", `Duplicate ACK ${p.ack} (${this.duplicateAckCounter})`, {
-        packetId: p.id,
-        ack: p.ack,
-      });
-      if (this.duplicateAckCounter >= 3) {
-        const firstUnacked = this.tcpAcked.findIndex((x) => !x);
-        if (firstUnacked >= 0) {
-          const seg: SegmentSpec = {
-            index: firstUnacked,
-            seq: this.baseSeq + firstUnacked * 100,
-            pl: this.payloads[firstUnacked] ?? "",
-            sentAt: this.time,
-            retransmits: 1,
-          };
-          this.retransmitAt.push({
-            seg,
-            at: this.time + 0.01,
-            fromDataLoss: true,
-            fast: true,
-          });
-          this.totalRetransmit += 1;
-          this.log("retransmit", `Fast retransmit on 3 dupACKs seq=${seg.seq}`, {
-            seq: seg.seq,
-          });
-        }
-        this.duplicateAckCounter = 0;
-      }
-      return;
-    }
-
-    this.lastAckNumber = p.ack;
-    this.duplicateAckCounter = 0;
-    this.log("info", `ACK ${p.ack} received at client`, { ack: p.ack, packetId: p.id });
+    this.log("info", `ACK ${p.ack} received`, { ack: p.ack, packetId: p.id });
     this.tcpAcked[p.segmentIndex] = true;
     this.totalAcked += 1;
     const sentAt = this.sentAtBySegment.get(p.segmentIndex);
@@ -726,9 +763,6 @@ export class CanvasSimulation {
     this.delivered = this.payloads.map((pl, i) => (this.tcpAcked[i] ? pl : "")).join("");
     this.totalBytesDelivered = this.delivered.length;
     this.inFlight = Math.max(0, this.inFlight - 1);
-
-    if (this.cwnd < this.ssthresh) this.cwnd += 1;
-    else this.cwnd += 1 / Math.max(1, this.cwnd);
 
     this.pumpTcpSends();
     const allAcked = this.tcpAcked.length > 0 && this.tcpAcked.every(Boolean);
@@ -760,10 +794,37 @@ export class CanvasSimulation {
       crashed: this.crashed,
       success: success && !this.crashed && deliveredOk,
     };
-    this.log(
-      "info",
-      success && deliveredOk ? "Complete." : "Incomplete.",
-      { path: "end-to-end" },
-    );
+
+    if (this.storyMode && this.storyStage === 1 && !this.config.useTcp) {
+      this.enqueueNarrative({
+        id: "story_tcp_replay",
+        layer: "tcp",
+        explanation:
+          "Now switch to TCP and replay. TCP retransmits missing data so the full message arrives.",
+        packetState: "Replay with reliability",
+        location: "CLIENT",
+      });
+      this.storyStage = 2;
+      this.phase = "paused";
+      this.currentNarrativeStep = this.narrativeQueue.shift() ?? null;
+      return;
+    }
+
+    this.enqueueNarrative({
+      id: "complete",
+      layer: "application",
+      explanation: success && deliveredOk ? "Message delivered end-to-end." : "Transfer incomplete.",
+      packetState: `Delivered="${this.delivered}"`,
+      location: "SERVER",
+    });
+    this.log("info", success && deliveredOk ? "Complete." : "Incomplete.");
+  }
+
+  continueStoryIfNeeded(): void {
+    if (!(this.storyMode && this.storyStage === 2)) return;
+    this.storyMode = true;
+    this.storyStage = 0;
+    this.setConfig({ message: "LOGIN", useTcp: true, arpanetMode: false, packetLoss: 0.18 });
+    this.start();
   }
 }

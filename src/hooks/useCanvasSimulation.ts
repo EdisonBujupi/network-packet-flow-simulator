@@ -23,10 +23,9 @@ export function useCanvasSimulation() {
   const [config, setConfigState] = useState<SimulationConfig>(defaultConfig);
   const [lossEnabled, setLossEnabled] = useState(true);
   const [runtime, setRuntime] = useState<RuntimeControls>({
-    timeScale: 1,
-    stepMode: false,
-    pauseOnLoss: false,
-    pauseOnRetransmit: false,
+    timeScale: 0.75,
+    narrativeEnabled: true,
+    narrativeAutoPlay: false,
   });
   /** Throttled UI refresh for sidebar (canvas draws every frame independently) */
   const [ui, setUi] = useState(0);
@@ -94,11 +93,21 @@ export function useCanvasSimulation() {
     });
   }, []);
 
-  const step = useCallback(() => {
+  const nextNarrative = useCallback(() => {
     const sim = simRef.current;
     if (!sim) return;
-    sim.configureRuntime({ stepMode: true });
-    sim.requestStep(0.36);
+    sim.nextNarrativeStep();
+    sim.continueStoryIfNeeded();
+    if (sim.snapshot().phase === "paused" && !sim.snapshot().currentNarrativeStep) {
+      sim.resume();
+    }
+    bump();
+  }, [bump]);
+
+  const storyMode = useCallback(() => {
+    const sim = simRef.current;
+    if (!sim) return;
+    sim.startStoryMode();
     bump();
   }, [bump]);
 
@@ -120,7 +129,8 @@ export function useCanvasSimulation() {
     setLayerMode,
     runtime,
     setRuntimeControl,
-    step,
+    nextNarrative,
+    storyMode,
     running,
     paused,
     bump,

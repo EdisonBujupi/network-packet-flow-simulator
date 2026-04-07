@@ -15,7 +15,8 @@ interface Props {
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
-  onStep: () => void;
+  onNext: () => void;
+  onStoryMode: () => void;
   onReset: () => void;
 }
 
@@ -33,7 +34,8 @@ export function ControlBar({
   onStart,
   onPause,
   onResume,
-  onStep,
+  onNext,
+  onStoryMode,
   onReset,
 }: Props) {
   const busy = running && !paused;
@@ -69,9 +71,9 @@ export function ControlBar({
           type="button"
           className="rounded-md border border-slate-600 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-40"
           disabled={busy}
-          onClick={onStep}
+          onClick={onNext}
         >
-          Step
+          Next
         </button>
         <button
           type="button"
@@ -87,21 +89,8 @@ export function ControlBar({
         Speed
         <input
           type="range"
-          min={0.35}
-          max={2.5}
-          step={0.05}
-          value={config.speedFactor}
-          disabled={busy}
-          onChange={(e) => setConfig({ speedFactor: Number(e.target.value) })}
-          className="w-24"
-        />
-      </label>
-      <label className="flex items-center gap-2 text-[11px] text-slate-400">
-        Time scale
-        <input
-          type="range"
           min={0.25}
-          max={3}
+          max={2}
           step={0.05}
           value={runtime.timeScale}
           onChange={(e) => setRuntimeControl({ timeScale: Number(e.target.value) })}
@@ -136,28 +125,19 @@ export function ControlBar({
         <input
           type="checkbox"
           className="h-3.5 w-3.5 rounded border-slate-600"
-          checked={runtime.stepMode}
-          onChange={(e) => setRuntimeControl({ stepMode: e.target.checked })}
+          checked={runtime.narrativeAutoPlay}
+          onChange={(e) => setRuntimeControl({ narrativeAutoPlay: e.target.checked })}
         />
-        Step mode
+        Auto play
       </label>
       <label className="flex items-center gap-2 text-[11px] text-slate-400">
-        <input
-          type="checkbox"
-          className="h-3.5 w-3.5 rounded border-slate-600"
-          checked={runtime.pauseOnLoss}
-          onChange={(e) => setRuntimeControl({ pauseOnLoss: e.target.checked })}
-        />
-        Pause on loss
-      </label>
-      <label className="flex items-center gap-2 text-[11px] text-slate-400">
-        <input
-          type="checkbox"
-          className="h-3.5 w-3.5 rounded border-slate-600"
-          checked={runtime.pauseOnRetransmit}
-          onChange={(e) => setRuntimeControl({ pauseOnRetransmit: e.target.checked })}
-        />
-        Pause on retransmit
+        <button
+          type="button"
+          className="rounded-md border border-cyan-700/70 bg-cyan-900/30 px-3 py-1 text-[11px] text-cyan-200 hover:bg-cyan-800/40"
+          onClick={onStoryMode}
+        >
+          Story Mode
+        </button>
       </label>
 
       <label className="flex items-center gap-2 text-[11px] text-slate-400">

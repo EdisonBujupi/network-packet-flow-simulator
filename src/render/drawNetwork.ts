@@ -73,6 +73,12 @@ export function drawNetwork(
   ctx.fillRect(0, 0, w, h);
 
   const nodes = layoutNodes(w, h);
+  const narrative = snap.currentNarrativeStep;
+
+  if (narrative) {
+    ctx.fillStyle = "rgba(2,6,23,0.35)";
+    ctx.fillRect(0, 0, w, h);
+  }
 
   /** Links */
   ctx.strokeStyle = "#1e293b";
@@ -125,8 +131,9 @@ export function drawNetwork(
 
   /** Nodes */
   for (const n of nodes) {
-    ctx.fillStyle = "#0f172a";
-    ctx.strokeStyle = "#22d3ee";
+    const activeNode = narrative?.location === n.label;
+    ctx.fillStyle = activeNode ? "#15304f" : "#0f172a";
+    ctx.strokeStyle = activeNode ? "#fbbf24" : "#22d3ee";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(n.x, n.y, 22, 0, Math.PI * 2);
@@ -137,6 +144,20 @@ export function drawNetwork(
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(n.label, n.x, n.y);
+  }
+
+  /** Active layer badge */
+  if (narrative) {
+    ctx.fillStyle = "rgba(15,23,42,0.9)";
+    if (typeof ctx.roundRect === "function") {
+      ctx.beginPath();
+      ctx.roundRect(w - 170, 8, 160, 24, 6);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#fbbf24";
+    ctx.font = "600 11px DM Sans, system-ui";
+    ctx.textAlign = "left";
+    ctx.fillText(`ACTIVE LAYER: ${narrative.layer.toUpperCase()}`, w - 164, 15);
   }
 
   /** Packets */
@@ -207,7 +228,7 @@ export function drawNetwork(
   ctx.fillText(snap.statusLine, 12, 10);
   ctx.fillStyle = "rgba(148,163,184,0.8)";
   ctx.fillText(
-    `t=${snap.time.toFixed(2)}s inFlight=${snap.metrics.inFlight} cwnd=${snap.metrics.cwnd.toFixed(2)} dupACK=${snap.metrics.dupAckCount}`,
+    `t=${snap.time.toFixed(2)}s inFlight=${snap.metrics.inFlight} loss=${(snap.metrics.lossRate * 100).toFixed(1)}%`,
     12,
     24,
   );
