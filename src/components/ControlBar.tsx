@@ -15,8 +15,8 @@ interface Props {
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
-  onNext: () => void;
   onStoryMode: () => void;
+  onExportLogs: () => void;
   onReset: () => void;
 }
 
@@ -34,8 +34,8 @@ export function ControlBar({
   onStart,
   onPause,
   onResume,
-  onNext,
   onStoryMode,
+  onExportLogs,
   onReset,
 }: Props) {
   const busy = running && !paused;
@@ -71,14 +71,6 @@ export function ControlBar({
           type="button"
           className="rounded-md border border-slate-600 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-40"
           disabled={busy}
-          onClick={onNext}
-        >
-          Next
-        </button>
-        <button
-          type="button"
-          className="rounded-md border border-slate-600 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-40"
-          disabled={busy}
           onClick={onReset}
         >
           Reset
@@ -94,6 +86,19 @@ export function ControlBar({
           step={0.05}
           value={runtime.timeScale}
           onChange={(e) => setRuntimeControl({ timeScale: Number(e.target.value) })}
+          className="w-20"
+        />
+      </label>
+      <label className="flex items-center gap-2 text-[11px] text-slate-400">
+        Latency
+        <input
+          type="range"
+          min={40}
+          max={500}
+          step={10}
+          value={config.delayMs}
+          disabled={busy}
+          onChange={(e) => setConfig({ delayMs: Number(e.target.value) })}
           className="w-20"
         />
       </label>
@@ -125,10 +130,10 @@ export function ControlBar({
         <input
           type="checkbox"
           className="h-3.5 w-3.5 rounded border-slate-600"
-          checked={runtime.narrativeAutoPlay}
-          onChange={(e) => setRuntimeControl({ narrativeAutoPlay: e.target.checked })}
+          checked={runtime.autoPlay}
+          onChange={(e) => setRuntimeControl({ autoPlay: e.target.checked })}
         />
-        Auto play
+        Auto Play
       </label>
       <label className="flex items-center gap-2 text-[11px] text-slate-400">
         <button
@@ -137,6 +142,15 @@ export function ControlBar({
           onClick={onStoryMode}
         >
           Story Mode
+        </button>
+      </label>
+      <label className="flex items-center gap-2 text-[11px] text-slate-400">
+        <button
+          type="button"
+          className="rounded-md border border-slate-700/80 bg-slate-900/40 px-3 py-1 text-[11px] text-slate-200 hover:bg-slate-800/50"
+          onClick={onExportLogs}
+        >
+          Export Logs
         </button>
       </label>
 

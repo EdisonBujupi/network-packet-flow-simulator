@@ -39,6 +39,12 @@ function packetLabel(p: VisualPacket, mode: LayerMode): string {
     : `${shortenIp(RECEIVER_IP)}→${shortenIp(SENDER_IP)}`;
 }
 
+function packetPath(p: VisualPacket): string {
+  return p.kind === "data"
+    ? "CLIENT->R1->R2->SERVER"
+    : "SERVER->R2->R1->CLIENT";
+}
+
 function layerTint(mode: LayerMode): string {
   if (mode === "physical") return "rgba(16,185,129,0.14)";
   if (mode === "ip") return "rgba(59,130,246,0.12)";
@@ -169,6 +175,41 @@ export function drawNetwork(
     ctx.font = "600 11px DM Sans, system-ui";
     ctx.textAlign = "left";
     ctx.fillText(`ACTIVE LAYER: ${narrative.layer.toUpperCase()}`, w - 164, 15);
+
+    /** inline educational cue tied to narrative step */
+    const cue =
+      narrative.id === "dns_lookup"
+        ? "DNS: domain -> IP"
+        : narrative.id === "tls_handshake"
+          ? "TLS: cert verify + key exchange"
+          : narrative.id === "http_exchange"
+            ? "HTTP: request -> response"
+            : narrative.id === "cookie_state"
+              ? "Cookie: session state"
+              : narrative.id === "tcp_segment"
+                ? "TCP: split + sequence"
+                : narrative.id === "tcp_retransmit_story"
+                  ? "TCP: retransmit missing segment"
+                  : narrative.id === "tcp_reorder_reassembly"
+                    ? "TCP: reorder + reassemble"
+                    : narrative.id === "ip_wrap"
+                      ? "IP: route by address"
+                      : narrative.id === "physical_send"
+                        ? "Physical: bits on link"
+                        : "";
+    if (cue) {
+      ctx.fillStyle = "rgba(15,23,42,0.9)";
+      const x = Math.max(8, Math.min(w - 230, w * 0.5 - 110));
+      if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(x, h - 38, 220, 26, 6);
+        ctx.fill();
+      }
+      ctx.fillStyle = "rgba(56,189,248,0.95)";
+      ctx.font = "600 11px DM Sans, system-ui";
+      ctx.textAlign = "left";
+      ctx.fillText(cue, x + 8, h - 28);
+    }
   }
 
   /** Packets */
@@ -252,6 +293,30 @@ export function drawNetwork(
           pos.y + 8,
         );
       }
+
+      /** User-friendly per-packet overlay (origin/path/destination/layer/status) */
+      const overlay = `${p.srcIp} | ${packetPath(p)} | ${p.dstIp} | ${snap.layerMode.toUpperCase()} | ${p.lifecycle}`;
+      const pad = 4;
+      ctx.font = "400 8px JetBrains Mono, ui-monospace, monospace";
+      const tw = ctx.measureText(overlay).width + pad * 2;
+      const th = 12;
+      const ox = Math.max(4, Math.min(w - tw - 4, pos.x - tw / 2));
+      const oy = y - th - 4;
+      ctx.fillStyle = "rgba(15,23,42,0.78)";
+      ctx.strokeStyle = "rgba(100,116,139,0.4)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(ox, oy, tw, th, 3);
+      } else {
+        ctx.rect(ox, oy, tw, th);
+      }
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(203,213,225,0.92)";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(overlay, ox + pad, oy + th / 2);
     }
     ctx.globalAlpha = 1;
   }

@@ -11,6 +11,7 @@ export default function App() {
   const sim = useCanvasSimulation();
   const snap = sim.snapshot;
   const [selected, setSelected] = useState<string | null>(null);
+  const [hoverTip, setHoverTip] = useState<string | null>(null);
 
   const onCanvasClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
@@ -30,6 +31,31 @@ export default function App() {
       simInst.setSelectedPacket(hit.id);
       setSelected(
         `${hit.id} ${hit.kind.toUpperCase()} ${hit.kind === "data" ? `seq=${hit.seqStart}-${hit.seqEnd}` : `ack=${hit.ack}`} | ${hit.lifecycle} | ${hit.srcIp} -> ${hit.dstIp}`,
+      );
+    },
+    [sim.simRef],
+  );
+
+  const onCanvasMove = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      const simInst = sim.simRef.current;
+      if (!simInst) return;
+      const canvas = (e.target as HTMLElement).closest("canvas");
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const hit = hitTestPacket(
+        simInst.snapshot(),
+        rect.width,
+        rect.height,
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+      );
+      if (!hit) {
+        setHoverTip(null);
+        return;
+      }
+      setHoverTip(
+        `${hit.id} | ${hit.srcIp} -> ${hit.dstIp} | ${hit.kind === "data" ? `SEQ ${hit.seqStart}-${hit.seqEnd}` : `ACK ${hit.ack}`} | ${hit.kind === "data" ? "payload segment" : "ack packet"}`,
       );
     },
     [sim.simRef],
@@ -56,9 +82,16 @@ export default function App() {
           <div
             className="relative min-h-0 flex-1 cursor-crosshair"
             onClick={onCanvasClick}
+            onMouseMove={onCanvasMove}
+            onMouseLeave={() => setHoverTip(null)}
             role="presentation"
           >
             <NetworkCanvas simRef={sim.simRef} />
+            {hoverTip && (
+              <div className="pointer-events-none absolute left-2 top-2 rounded border border-slate-700 bg-slate-950/85 px-2 py-1 text-[11px] font-mono text-cyan-200">
+                {hoverTip}
+              </div>
+            )}
           </div>
           <ControlBar
             config={sim.config}
@@ -74,15 +107,14 @@ export default function App() {
             onStart={sim.start}
             onPause={sim.pause}
             onResume={sim.resume}
-            onNext={sim.nextNarrative}
             onStoryMode={sim.storyMode}
+            onExportLogs={sim.exportLogs}
             onReset={sim.reset}
           />
           <NarrativePanel
             step={snap?.currentNarrativeStep ?? null}
-            onNext={sim.nextNarrative}
-            autoPlay={sim.runtime.narrativeAutoPlay}
             activeLayer={snap?.layerMode ?? "physical"}
+            focusedPacket={snap?.focusedPacket ?? null}
           />
         </div>
         <SidePanel timeline={snap?.timeline ?? []} selected={selected} />
@@ -96,6 +128,19 @@ export default function App() {
         >
           Delivered: <code className="font-mono">{result.deliveredMessage || "∅"}</code>
           {result.success ? " — OK" : " — incomplete / partial"}
+          {snap && (
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-300">
+              <span>Total sent: {snap.metrics.totalSent}</span>
+              <span>Total received (ACKed): {snap.metrics.totalAcked}</span>
+              <span>Retransmissions: {snap.metrics.totalRetransmit}</span>
+              <span>Loss rate: {(snap.metrics.lossRate * 100).toFixed(1)}%</span>
+              <span>
+                Layers: PHY {snap.layerBreakdown.physical} / IP {snap.layerBreakdown.ip} / TCP {snap.layerBreakdown.tcp} /
+                APP {snap.layerBreakdown.application}
+              </span>
+              <span>Learning: TCP reliability, DNS name to IP, HTTP request/response, TLS encryption.</span>
+            </div>
+          )}
         </div>
       )}
     </div>

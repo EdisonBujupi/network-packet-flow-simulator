@@ -25,7 +25,7 @@ export function useCanvasSimulation() {
   const [runtime, setRuntime] = useState<RuntimeControls>({
     timeScale: 0.75,
     narrativeEnabled: true,
-    narrativeAutoPlay: false,
+    autoPlay: true,
   });
   /** Throttled UI refresh for sidebar (canvas draws every frame independently) */
   const [ui, setUi] = useState(0);
@@ -93,23 +93,26 @@ export function useCanvasSimulation() {
     });
   }, []);
 
-  const nextNarrative = useCallback(() => {
-    const sim = simRef.current;
-    if (!sim) return;
-    sim.nextNarrativeStep();
-    sim.continueStoryIfNeeded();
-    if (sim.snapshot().phase === "paused" && !sim.snapshot().currentNarrativeStep) {
-      sim.resume();
-    }
-    bump();
-  }, [bump]);
-
   const storyMode = useCallback(() => {
     const sim = simRef.current;
     if (!sim) return;
     sim.startStoryMode();
     bump();
   }, [bump]);
+
+  const exportLogs = useCallback(() => {
+    const snap = simRef.current?.snapshot();
+    if (!snap) return;
+    const blob = new Blob([JSON.stringify(snap.timeline, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `dataflow-log-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   const phase = snapshot?.phase;
   const running = phase === "running";
@@ -129,8 +132,8 @@ export function useCanvasSimulation() {
     setLayerMode,
     runtime,
     setRuntimeControl,
-    nextNarrative,
     storyMode,
+    exportLogs,
     running,
     paused,
     bump,
