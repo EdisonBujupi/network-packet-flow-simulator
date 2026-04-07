@@ -1,0 +1,9 @@
+How to run
+cd c:\Users\ebuju\OneDrive\Desktop\dataflow
+npm install
+npm run dev
+Production:
+
+npm run build
+npm start
+Then open http://127.0.0.1:3847 (default).
