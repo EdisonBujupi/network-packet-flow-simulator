@@ -12,9 +12,11 @@ const kindColor: Record<TimelineEntry["kind"], string> = {
 export function SidePanel({
   timeline,
   selected,
+  advanced,
 }: {
   timeline: TimelineEntry[];
   selected: string | null;
+  advanced: boolean;
 }) {
   const rows = timeline.slice(-120);
 
@@ -28,15 +30,15 @@ export function SidePanel({
         {rows.map((r) => (
           <div key={r.id} className={`border-b border-white/5 py-1 ${kindColor[r.kind]}`}>
             <span className="text-slate-600">{r.t.toFixed(2)}s</span>{" "}
-            <span className="text-slate-500">{r.kind.toUpperCase()}</span>{" "}
-            {r.packetId && <span className="text-slate-600">[{r.packetId}]</span>} {r.text}
-            {(r.seq !== undefined || r.ack !== undefined) && (
+            <span className="text-slate-500">{r.kind.toUpperCase()}</span> {r.text}
+            {advanced && r.packetId && <span className="text-slate-600"> [{r.packetId}]</span>}
+            {advanced && (r.seq !== undefined || r.ack !== undefined) && (
               <span className="text-slate-500">
                 {" "}
                 seq={r.seq ?? "-"} ack={r.ack ?? "-"}
               </span>
             )}
-            {r.path && <span className="text-slate-600"> path={r.path}</span>}
+            {advanced && r.path && <span className="text-slate-600"> path={r.path}</span>}
           </div>
         ))}
       </div>

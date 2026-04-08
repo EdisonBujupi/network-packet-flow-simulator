@@ -136,6 +136,15 @@ export function ControlBar({
         Auto Play
       </label>
       <label className="flex items-center gap-2 text-[11px] text-slate-400">
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 rounded border-slate-600"
+          checked={runtime.advancedMode}
+          onChange={(e) => setRuntimeControl({ advancedMode: e.target.checked })}
+        />
+        Advanced
+      </label>
+      <label className="flex items-center gap-2 text-[11px] text-slate-400">
         <button
           type="button"
           className="rounded-md border border-cyan-700/70 bg-cyan-900/30 px-3 py-1 text-[11px] text-cyan-200 hover:bg-cyan-800/40"

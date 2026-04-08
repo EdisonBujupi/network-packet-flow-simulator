@@ -115,9 +115,14 @@ export default function App() {
             step={snap?.currentNarrativeStep ?? null}
             activeLayer={snap?.layerMode ?? "physical"}
             focusedPacket={snap?.focusedPacket ?? null}
+                advanced={snap?.runtime.advancedMode ?? false}
           />
         </div>
-        <SidePanel timeline={snap?.timeline ?? []} selected={selected} />
+        <SidePanel
+          timeline={snap?.timeline ?? []}
+          selected={selected}
+          advanced={snap?.runtime.advancedMode ?? false}
+        />
       </div>
 
       {result && (

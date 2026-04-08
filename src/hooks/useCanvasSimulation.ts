@@ -26,6 +26,7 @@ export function useCanvasSimulation() {
     timeScale: 0.75,
     narrativeEnabled: true,
     autoPlay: true,
+    advancedMode: false,
   });
   /** Throttled UI refresh for sidebar (canvas draws every frame independently) */
   const [ui, setUi] = useState(0);

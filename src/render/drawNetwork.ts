@@ -1,5 +1,4 @@
 import type { CanvasSimSnapshot, LayerMode, VisualPacket } from "../simulation/canvasSim";
-import { RECEIVER_IP, SENDER_IP } from "../simulation/canvasSim";
 
 export interface NodeLayout {
   x: number;
@@ -17,26 +16,23 @@ export function layoutNodes(w: number, h: number): NodeLayout[] {
   ];
 }
 
-function shortenIp(ip: string): string {
-  const p = ip.split(".");
-  if (p.length === 4) return `${p[0]}.${p[1]}.${p[2]}.x`;
-  return ip;
-}
-
 function packetLabel(p: VisualPacket, mode: LayerMode): string {
+  if (!p.forward && p.kind === "ack") return "Waiting for response";
+  if (p.lifecycle === "retransmitting") return "Resending packet";
+  if (p.lifecycle === "lost") return "Packet lost";
+  if (p.lifecycle === "acknowledged") return "Response received";
+  if (p.lifecycle === "delivered") return "Delivered";
   if (p.lost) return "LOST";
   if (mode === "physical") {
-    return p.kind === "data" ? `D${p.segmentIndex + 1}` : `ACK${p.ack}`;
+    return "Signal";
   }
   if (mode === "tcp") {
-    return p.kind === "data" ? `${p.seqStart}-${p.seqEnd}` : `ACK ${p.ack}`;
+    return "Request sent";
   }
   if (mode === "application") {
-    return p.kind === "data" ? "HTTP req payload" : "HTTP response / ACK";
+    return p.kind === "data" ? "Request sent" : "Response received";
   }
-  return p.kind === "data"
-    ? `${shortenIp(SENDER_IP)}→${shortenIp(RECEIVER_IP)}`
-    : `${shortenIp(RECEIVER_IP)}→${shortenIp(SENDER_IP)}`;
+  return "Packet in route";
 }
 
 function packetPath(p: VisualPacket): string {
@@ -213,9 +209,11 @@ export function drawNetwork(
   }
 
   /** Packets */
+  const focalId = snap.focusedPacket?.id ?? null;
   for (const p of snap.packets) {
     const pos = packetPosition(p, nodes);
-    const alpha = p.lost ? p.fade : 1;
+    let alpha = p.lost ? p.fade : 1;
+    if (focalId && p.id !== focalId) alpha *= 0.4;
     ctx.globalAlpha = alpha;
 
     const edge = edgeEndpoints(p, nodes);
@@ -249,14 +247,17 @@ export function drawNetwork(
       ctx.strokeStyle = "rgba(34,211,238,0.95)";
     }
 
+    const advanced = snap.runtime.advancedMode;
     if (snap.layerMode === "physical") {
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = "rgba(16,185,129,0.85)";
-      ctx.font = "500 10px JetBrains Mono, ui-monospace, monospace";
-      ctx.fillText("1010", pos.x + 12, pos.y - 10);
+      if (advanced) {
+        ctx.fillStyle = "rgba(16,185,129,0.85)";
+        ctx.font = "500 10px JetBrains Mono, ui-monospace, monospace";
+        ctx.fillText("1010", pos.x + 12, pos.y - 10);
+      }
     } else {
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -274,28 +275,10 @@ export function drawNetwork(
       ctx.textBaseline = "middle";
       const line1 = packetLabel(p, snap.layerMode);
       ctx.fillText(line1, pos.x, pos.y - 5);
-      ctx.font = "400 9px JetBrains Mono, ui-monospace, monospace";
-      ctx.fillStyle = "rgba(148,163,184,0.95)";
-      if (snap.layerMode === "ip") {
-        ctx.fillText(`${p.srcIp} -> ${p.dstIp}`, pos.x, pos.y + 8);
-      } else if (snap.layerMode === "tcp") {
-        ctx.fillText(
-          p.kind === "data"
-            ? `SEG#${p.segmentIndex + 1} ${p.retransmitGen > 0 ? "RTX" : ""}`
-            : `ACK ${p.ack}`,
-          pos.x,
-          pos.y + 8,
-        );
-      } else {
-        ctx.fillText(
-          p.kind === "data" ? "HTTP request bytes" : "HTTP response/ACK",
-          pos.x,
-          pos.y + 8,
-        );
-      }
-
-      /** User-friendly per-packet overlay (origin/path/destination/layer/status) */
-      const overlay = `${p.srcIp} | ${packetPath(p)} | ${p.dstIp} | ${snap.layerMode.toUpperCase()} | ${p.lifecycle}`;
+      /** One floating label per packet (advanced expands details) */
+      const overlay = advanced
+        ? `${p.srcIp} | ${packetPath(p)} | ${p.dstIp} | ${snap.layerMode.toUpperCase()} | ${p.lifecycle}`
+        : packetLabel(p, snap.layerMode);
       const pad = 4;
       ctx.font = "400 8px JetBrains Mono, ui-monospace, monospace";
       const tw = ctx.measureText(overlay).width + pad * 2;

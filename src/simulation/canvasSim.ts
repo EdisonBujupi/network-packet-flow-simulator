@@ -88,6 +88,7 @@ export interface RuntimeControls {
   timeScale: number;
   narrativeEnabled: boolean;
   autoPlay: boolean;
+  advancedMode: boolean;
 }
 
 export interface CanvasSimSnapshot {
@@ -184,6 +185,7 @@ export class CanvasSimulation {
     timeScale: 0.75,
     narrativeEnabled: true,
     autoPlay: true,
+    advancedMode: false,
   };
 
   private payloads: string[] = [];

@@ -32,6 +32,7 @@ export function NarrativePanel({
   step,
   activeLayer,
   focusedPacket,
+  advanced,
 }: {
   step: NarrativeStep | null;
   activeLayer: LayerMode;
@@ -50,6 +51,7 @@ export function NarrativePanel({
     fragmentInfo?: string;
     appPurpose?: string;
   } | null;
+  advanced: boolean;
 }) {
   const recommended = step?.layer ?? activeLayer;
   const body = step ? explainForLayer(step, activeLayer) : null;
@@ -68,39 +70,33 @@ export function NarrativePanel({
           )}
           {step && (
             <>
-              <p className="text-sm font-semibold text-white">
-                Layer:{" "}
-                <span className="text-cyan-300 uppercase">
-                  {activeLayer}
-                </span>{" "}
-                {activeLayer !== recommended && (
-                  <span className="text-amber-300">(recommended: {recommended})</span>
-                )}
+              <p className="text-sm text-slate-200">
+                <span className="font-semibold text-cyan-300 uppercase">{activeLayer}</span>: Packet is at{" "}
+                <span className="font-semibold text-white">{step.location}</span> and {body?.toLowerCase()}
               </p>
-              <p className="mt-1 text-sm text-slate-300">{body}</p>
-              <p className="mt-1 text-xs font-mono text-slate-500">
-                Packet: {step.packetState} | Location: {step.location}
-              </p>
+              {advanced && (
+                <p className="mt-1 text-xs font-mono text-slate-500">
+                  Packet: {step.packetState} | Recommended: {recommended}
+                </p>
+              )}
               {focusedPacket && (
                 <div className="mt-2 rounded border border-slate-700/70 bg-slate-950/45 p-2 text-xs text-slate-300">
-                  <p className="font-mono text-[11px] text-cyan-200">
-                    {focusedPacket.id} | {focusedPacket.origin} {"->"} {focusedPacket.destination}
+                  <p className="text-[12px] text-slate-200">
+                    {focusedPacket.layerStatus}: {focusedPacket.origin} {"->"} {focusedPacket.destination} ({focusedPacket.lifecycle})
                   </p>
-                  <p className="font-mono text-[11px] text-slate-400">Path: {focusedPacket.path}</p>
-                  <p className="text-[12px] text-slate-300">Status: {focusedPacket.layerStatus} ({focusedPacket.lifecycle})</p>
-                  {activeLayer === "physical" && (
+                  {advanced && activeLayer === "physical" && (
                     <p className="text-[12px] text-emerald-300/90">
                       Bits are propagating over links (~{focusedPacket.signalTimingMs ?? 0} ms).
                       {focusedPacket.signalError ? ` Error: ${focusedPacket.signalError}` : " No physical errors detected."}
                     </p>
                   )}
-                  {activeLayer === "ip" && (
+                  {advanced && activeLayer === "ip" && (
                     <p className="text-[12px] text-blue-300/90">
                       IP routes from {focusedPacket.origin} to {focusedPacket.destination} via {focusedPacket.ipHop ?? "current hop"}.
                       {focusedPacket.fragmentInfo ? ` ${focusedPacket.fragmentInfo}.` : ""}
                     </p>
                   )}
-                  {activeLayer === "tcp" && (
+                  {advanced && activeLayer === "tcp" && (
                     <p className="text-[12px] text-cyan-200/90">
                       TCP {focusedPacket.seqRange ? `SEQ ${focusedPacket.seqRange}` : ""}
                       {focusedPacket.ack !== undefined ? ` ACK ${focusedPacket.ack}` : ""}.
@@ -109,7 +105,7 @@ export function NarrativePanel({
                         : " Reliability is maintained through sequencing and acknowledgments."}
                     </p>
                   )}
-                  {activeLayer === "application" && (
+                  {(activeLayer === "application" || advanced) && (
                     <p className="text-[12px] text-violet-200/90">
                       {focusedPacket.appPurpose ?? "This packet belongs to application request/response flow."}
                     </p>
