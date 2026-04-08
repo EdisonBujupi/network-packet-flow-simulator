@@ -69,6 +69,8 @@ export interface VisualPacket {
   srcIp: string;
   dstIp: string;
   lifecycle: PacketLifecycle;
+  lossLink?: string;
+  lossCause?: string;
 }
 
 export interface SimMetrics {
@@ -239,6 +241,7 @@ export class CanvasSimulation {
     tcp: 0,
     application: 0,
   };
+  private readonly hopNames = ["CLIENT", "ROUTER 1", "ROUTER 2", "SERVER"] as const;
 
   constructor(cfg: SimulationConfig) {
     this.config = { ...cfg };
@@ -347,7 +350,7 @@ export class CanvasSimulation {
     if (!p) return null;
 
     const path = p.kind === "data" ? "CLIENT->R1->R2->SERVER" : "SERVER->R2->R1->CLIENT";
-    const hopNamesForward = ["CLIENT", "ROUTER 1", "ROUTER 2", "SERVER"] as const;
+    const hopNamesForward = this.hopNames;
     const hopNamesBack = ["SERVER", "ROUTER 2", "ROUTER 1", "CLIENT"] as const;
     const hop = p.kind === "data" ? hopNamesForward[Math.min(3, p.hopIndex)] : hopNamesBack[Math.min(3, p.hopIndex)];
     const signalTimingMs = Math.round(
@@ -376,7 +379,9 @@ export class CanvasSimulation {
       seqRange: p.kind === "data" ? `${p.seqStart}-${p.seqEnd}` : undefined,
       ack: p.kind === "ack" ? p.ack : undefined,
       signalTimingMs,
-      signalError: p.lost ? this.lossReasonBySegment.get(p.segmentIndex) ?? "Signal drop detected." : undefined,
+      signalError: p.lost
+        ? p.lossCause ?? this.lossReasonBySegment.get(p.segmentIndex) ?? "Packet dropped on the network path."
+        : undefined,
       ipHop: hop,
       fragmentInfo,
       appPurpose,
@@ -663,6 +668,8 @@ export class CanvasSimulation {
       srcIp: SENDER_IP,
       dstIp: RECEIVER_IP,
       lifecycle: gen > 0 ? "retransmitting" : "created",
+      lossLink: undefined,
+      lossCause: undefined,
     };
     this.packets.push(packet);
     this.totalSent += 1;
@@ -694,6 +701,8 @@ export class CanvasSimulation {
       srcIp: RECEIVER_IP,
       dstIp: SENDER_IP,
       lifecycle: "created",
+      lossLink: undefined,
+      lossCause: undefined,
     };
     this.packets.push(packet);
     this.log("ack", `ACK ${ack} for seg#${segmentIndex + 1}`, {
@@ -761,6 +770,15 @@ export class CanvasSimulation {
       r.seg.sentAt = this.time;
       this.sentAtBySegment.set(r.seg.index, this.time);
       this.spawnData(r.seg, r.seg.index % MAX_PARALLEL, r.seg.retransmits);
+      this.log(
+        "retransmit",
+        "Retransmission triggered",
+        {
+          seq: r.seg.seq,
+          ack: 0,
+          path: "CLIENT->R1->R2->SERVER",
+        },
+      );
       if (r.fromDataLoss) this.inFlight += 1;
     }
 
@@ -818,14 +836,27 @@ export class CanvasSimulation {
   private onHopLoss(p: VisualPacket): void {
     p.lost = true;
     p.lifecycle = "lost";
+    p.progress = 0.92;
     this.totalLost += 1;
-    this.lossReasonBySegment.set(
-      p.segmentIndex,
-      p.kind === "data"
-        ? "Packet was lost in transit; TCP schedules retransmission."
-        : "ACK was lost on return path; sender may resend missing segment.",
-    );
-    this.log("lost", `${p.kind.toUpperCase()} lost`, { packetId: p.id, seq: p.seq, ack: p.ack });
+    const from = this.hopNames[Math.max(0, Math.min(2, p.hopIndex))];
+    const to = this.hopNames[Math.max(1, Math.min(3, p.hopIndex + 1))];
+    const lossLink = `${from} -> ${to}`;
+    const causes = [
+      "network congestion",
+      "wireless interference",
+      "routing instability",
+    ] as const;
+    const picked = causes[Math.floor(this.rng() * causes.length)] ?? "network congestion";
+    const causeText = `Packet dropped due to ${picked} between ${from} and ${to}.`;
+    p.lossLink = lossLink;
+    p.lossCause = causeText;
+    this.lossReasonBySegment.set(p.segmentIndex, causeText);
+    this.log("lost", "Packet dropped (no ACK received)", {
+      packetId: p.id,
+      seq: p.seq,
+      ack: p.ack,
+      path: lossLink,
+    });
 
     if (p.kind === "data" && this.config.useTcp) {
       if (this.storyReplayActive && !this.storyLossExplained) {
@@ -834,9 +865,9 @@ export class CanvasSimulation {
           id: "tcp_loss_detected",
           layer: "tcp",
           explanation:
-            "A segment is lost on the network path. TCP detects the missing data because delivery is not acknowledged.",
+            `${causeText} No acknowledgment comes back, so TCP marks this segment as missing.`,
           packetState: `Missing SEQ ${p.seqStart}-${p.seqEnd}`,
-          location: "ROUTER 2",
+          location: from === "CLIENT" ? "CLIENT" : from === "ROUTER 1" ? "ROUTER 1" : "ROUTER 2",
         });
       }
       if (this.config.arpanetMode) {

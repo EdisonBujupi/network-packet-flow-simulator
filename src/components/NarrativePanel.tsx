@@ -14,7 +14,8 @@ function explainForLayer(step: NarrativeStep, activeLayer: LayerMode): string {
   }
   if (activeLayer === "tcp") {
     if (step.id === "tcp_segment") return "TCP splits the message into segments and assigns sequence numbers.";
-    if (step.id === "tcp_loss_detected") return "TCP notices missing progress and detects packet loss.";
+    if (step.id === "tcp_loss_detected")
+      return "The packet was lost on the way to the server, so TCP will resend it to ensure delivery.";
     if (step.id === "tcp_retransmit_story") return "TCP resends missing packets automatically to recover reliability.";
     if (step.id === "tcp_reorder_reassembly") return "TCP reorders received segments and reconstructs the original stream.";
     if (step.id === "ack_return") return "TCP ACK confirms delivery so missing data can be retransmitted.";
@@ -76,7 +77,9 @@ export function NarrativePanel({
               </p>
               {advanced && (
                 <p className="mt-1 text-xs font-mono text-slate-500">
-                  Packet: {step.packetState} | Recommended: {recommended}
+                  {step.id === "tcp_loss_detected" && focusedPacket?.seqRange
+                    ? `ACK pending, missing segment triggers retransmission of seq=${focusedPacket.seqRange}`
+                    : `Packet: ${step.packetState} | Recommended: ${recommended}`}
                 </p>
               )}
               {focusedPacket && (

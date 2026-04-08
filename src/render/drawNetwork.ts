@@ -228,6 +228,20 @@ export function drawNetwork(
       ctx.stroke();
     }
 
+    if (p.lost) {
+      // Visualize exact loss link with a localized break marker.
+      const mx = edge.x0 + (edge.x1 - edge.x0) * Math.min(1, Math.max(0, p.progress));
+      const my = edge.y0 + (edge.y1 - edge.y0) * Math.min(1, Math.max(0, p.progress));
+      ctx.strokeStyle = "rgba(248,113,113,0.95)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(mx - 6, my - 6);
+      ctx.lineTo(mx + 6, my + 6);
+      ctx.moveTo(mx - 6, my + 6);
+      ctx.lineTo(mx + 6, my - 6);
+      ctx.stroke();
+    }
+
     const wBox = snap.layerMode === "physical" ? 18 : 76;
     const hBox = snap.layerMode === "physical" ? 18 : 28;
     const x = pos.x - wBox / 2;
