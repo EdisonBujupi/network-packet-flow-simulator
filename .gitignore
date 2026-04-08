@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local AI/IDE session artifacts (can contain usernames/paths)
+.cursor/
+terminals/
+agent-transcripts/
