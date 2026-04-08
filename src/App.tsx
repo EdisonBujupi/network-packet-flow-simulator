@@ -55,7 +55,7 @@ export default function App() {
         return;
       }
       setHoverTip(
-        `${hit.id} | ${hit.srcIp} -> ${hit.dstIp} | ${hit.kind === "data" ? `SEQ ${hit.seqStart}-${hit.seqEnd}` : `ACK ${hit.ack}`} | ${hit.kind === "data" ? "payload segment" : "ack packet"}`,
+        `${hit.id} | ${hit.srcIp} -> ${hit.dstIp} | ${hit.kind === "data" ? `SEQ ${hit.seqStart}-${hit.seqEnd}` : `ACK ${hit.ack}`} | trust=${hit.trustState}`,
       );
     },
     [sim.simRef],
@@ -69,7 +69,7 @@ export default function App() {
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-cyan-500/90">Dataflow</p>
-            <h1 className="text-lg font-semibold text-white">TCP/IP packet flow</h1>
+            <h1 className="text-lg font-semibold text-white">Cybersecurity Network Behavior Lab</h1>
           </div>
           <p className="max-w-xl text-right text-[11px] text-slate-500">
             Fixed viewport · canvas + one animation loop · cyan = data toward server · violet = ACK toward client
@@ -139,6 +139,8 @@ export default function App() {
               <span>Total received (ACKed): {snap.metrics.totalAcked}</span>
               <span>Retransmissions: {snap.metrics.totalRetransmit}</span>
               <span>Loss rate: {(snap.metrics.lossRate * 100).toFixed(1)}%</span>
+              <span>Security events: {snap.metrics.securityEvents}</span>
+              <span>Active attacks: {snap.securitySummary.attacks.join(", ") || "none"}</span>
               <span>
                 Layers: PHY {snap.layerBreakdown.physical} / IP {snap.layerBreakdown.ip} / TCP {snap.layerBreakdown.tcp} /
                 APP {snap.layerBreakdown.application}

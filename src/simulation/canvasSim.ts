@@ -14,6 +14,7 @@ export type PacketLifecycle =
   | "acknowledged"
   | "delivered";
 export type TimelineKind = "sent" | "lost" | "ack" | "retransmit" | "protocol" | "info";
+export type TrustState = "untrusted" | "verified" | "encrypted";
 
 export interface NarrativeStep {
   id:
@@ -49,6 +50,13 @@ export interface TimelineEntry {
   seq?: number;
   ack?: number;
   path?: string;
+  layer?: LayerMode;
+  eventType?: string;
+  status?: "sent" | "lost" | "retransmitted" | "received" | "blocked";
+  vulnerability?: string;
+  attackType?: string;
+  mitigation?: string;
+  trustState?: TrustState;
 }
 
 export interface VisualPacket {
@@ -71,6 +79,7 @@ export interface VisualPacket {
   lifecycle: PacketLifecycle;
   lossLink?: string;
   lossCause?: string;
+  trustState: TrustState;
 }
 
 export interface SimMetrics {
@@ -84,6 +93,7 @@ export interface SimMetrics {
   avgRttMs: number;
   throughputBps: number;
   goodputBps: number;
+  securityEvents: number;
 }
 
 export interface RuntimeControls {
@@ -91,6 +101,7 @@ export interface RuntimeControls {
   narrativeEnabled: boolean;
   autoPlay: boolean;
   advancedMode: boolean;
+  attackSimulation: "none" | "mitm" | "dns_poisoning" | "session_hijacking";
 }
 
 export interface CanvasSimSnapshot {
@@ -129,6 +140,10 @@ export interface CanvasSimSnapshot {
     fragmentInfo?: string;
     appPurpose?: string;
   } | null;
+  securitySummary: {
+    events: number;
+    attacks: string[];
+  };
 }
 
 const EDGE_HOPS = 3;
@@ -188,6 +203,7 @@ export class CanvasSimulation {
     narrativeEnabled: true,
     autoPlay: true,
     advancedMode: false,
+    attackSimulation: "none",
   };
 
   private payloads: string[] = [];
@@ -221,6 +237,8 @@ export class CanvasSimulation {
     dnsCached: false,
     dnsTtlSec: 18,
   };
+  private securityEvents = 0;
+  private triggeredAttacks = new Set<string>();
   private scheduled: Scheduled[] = [];
   private appReady = false;
 
@@ -242,6 +260,13 @@ export class CanvasSimulation {
     application: 0,
   };
   private readonly hopNames = ["CLIENT", "ROUTER 1", "ROUTER 2", "SERVER"] as const;
+  private readonly scenarioSeeds: Record<SimulationConfig["scenario"], number> = {
+    normal_flow: 1001,
+    packet_loss: 1002,
+    high_latency: 1003,
+    dns_poisoning: 1004,
+    tls_failure: 1005,
+  };
 
   constructor(cfg: SimulationConfig) {
     this.config = { ...cfg };
@@ -334,11 +359,16 @@ export class CanvasSimulation {
         avgRttMs: this.avgRttMs,
         throughputBps: this.totalBytesSent / elapsed,
         goodputBps: this.totalBytesDelivered / elapsed,
+        securityEvents: this.securityEvents,
       },
       runtime: { ...this.runtime },
       protocolState: { ...this.protocol },
       layerBreakdown: { ...this.layerStepCounts },
       focusedPacket: this.buildFocusedPacketContext(),
+      securitySummary: {
+        events: this.securityEvents,
+        attacks: Array.from(this.triggeredAttacks),
+      },
     };
   }
 
@@ -386,6 +416,14 @@ export class CanvasSimulation {
       fragmentInfo,
       appPurpose,
     };
+  }
+
+  private scenarioConfig(base: SimulationConfig): SimulationConfig {
+    if (base.scenario === "packet_loss") return { ...base, packetLoss: 0.22, delayMs: 120 };
+    if (base.scenario === "high_latency") return { ...base, packetLoss: 0.05, delayMs: 420 };
+    if (base.scenario === "dns_poisoning") return { ...base, packetLoss: 0.05, delayMs: 140 };
+    if (base.scenario === "tls_failure") return { ...base, packetLoss: 0.03, delayMs: 130 };
+    return { ...base, packetLoss: 0.03, delayMs: 100 };
   }
 
   private statusLine(): string {
@@ -452,10 +490,12 @@ export class CanvasSimulation {
     this.storyLossExplained = false;
     this.storyRetransmitExplained = false;
     this.storyReorderExplained = false;
+    this.securityEvents = 0;
+    this.triggeredAttacks.clear();
 
-    this.rng = mulberry32(
-      this.config.message.length * 7919 + Math.floor(this.config.packetLoss * 10000),
-    );
+    this.config = this.scenarioConfig(this.config);
+
+    this.rng = mulberry32(this.scenarioSeeds[this.config.scenario] + this.config.message.length * 7919);
 
     const msg = this.config.message || "";
     let chunks = segmentPayload(msg, 3);
@@ -531,7 +571,15 @@ export class CanvasSimulation {
     for (const s of ready) {
       switch (s.type) {
         case "dns_query":
-          this.log("protocol", "DNS query: example.org A?");
+          this.log("protocol", "DNS query sent", {
+            layer: "application",
+            eventType: "dns_query",
+            status: "sent",
+            vulnerability: "DNS responses can be forged on insecure resolvers.",
+            attackType: "DNS cache poisoning",
+            mitigation: "Use DNSSEC-validating resolvers and trusted DNS over TLS/HTTPS.",
+            trustState: "untrusted",
+          });
           this.enqueueNarrative({
             id: "dns_lookup",
             layer: "application",
@@ -542,12 +590,46 @@ export class CanvasSimulation {
           });
           break;
         case "dns_answer":
+          if (this.config.scenario === "dns_poisoning" || this.runtime.attackSimulation === "dns_poisoning") {
+            this.securityEvents += 1;
+            this.triggeredAttacks.add("DNS poisoning");
+            this.log("protocol", "Poisoned DNS response injected (incorrect IP)", {
+              layer: "application",
+              eventType: "dns_poisoned",
+              status: "received",
+              vulnerability: "Resolver accepted untrusted DNS answer.",
+              attackType: "DNS cache poisoning",
+              mitigation: "DNSSEC signature validation and hardened resolver cache.",
+              trustState: "untrusted",
+            });
+            this.enqueueNarrative({
+              id: "dns_lookup",
+              layer: "application",
+              explanation:
+                "Security alert: DNS answer appears tampered. DNSSEC would verify the response and reject forged records.",
+              packetState: "Potential poisoned DNS answer",
+              location: "CLIENT",
+            });
+          }
           this.protocol.dnsDone = true;
           this.protocol.dnsCached = true;
-          this.log("protocol", `DNS answer cached (${RECEIVER_IP})`);
+          this.log("protocol", `DNS answer cached (${RECEIVER_IP})`, {
+            layer: "application",
+            eventType: "dns_answer",
+            status: "received",
+            trustState:
+              this.config.scenario === "dns_poisoning" || this.runtime.attackSimulation === "dns_poisoning"
+                ? "untrusted"
+                : "verified",
+          });
           break;
         case "tls_client_hello":
-          this.log("protocol", "TLS ClientHello");
+          this.log("protocol", "TLS ClientHello", {
+            layer: "application",
+            eventType: "tls_client_hello",
+            status: "sent",
+            trustState: "verified",
+          });
           this.enqueueNarrative({
             id: "tls_handshake",
             layer: "application",
@@ -558,16 +640,65 @@ export class CanvasSimulation {
           });
           break;
         case "tls_server_hello":
-          this.log("protocol", "TLS ServerHello");
+          this.log("protocol", "TLS ServerHello", {
+            layer: "application",
+            eventType: "tls_server_hello",
+            status: "received",
+            trustState: "verified",
+          });
           break;
         case "tls_keys_ready":
+          if (this.config.scenario === "tls_failure" || this.runtime.attackSimulation === "mitm") {
+            this.securityEvents += 1;
+            this.triggeredAttacks.add("TLS failure / MITM");
+            this.log("protocol", "MITM intercepts handshake path", {
+              layer: "ip",
+              eventType: "mitm_intercept",
+              status: "received",
+              vulnerability: "Traffic path can be intercepted before trust is established.",
+              attackType: "MITM",
+              mitigation: "Mutual TLS, certificate pinning, and strict trust-store policies.",
+              trustState: "untrusted",
+            });
+            this.log("protocol", "TLS certificate verification failed", {
+              layer: "application",
+              eventType: "tls_failure",
+              status: "blocked",
+              vulnerability: "Unverified certificate enables man-in-the-middle interception.",
+              attackType: "MITM",
+              mitigation: "Strict certificate validation, HSTS, and trusted certificate authorities.",
+              trustState: "untrusted",
+            });
+            this.enqueueNarrative({
+              id: "tls_handshake",
+              layer: "application",
+              explanation:
+                "TLS validation failed. Connection trust is broken and traffic may be intercepted by a man-in-the-middle attacker.",
+              packetState: "TLS handshake blocked",
+              location: "CLIENT",
+            });
+            break;
+          }
           this.protocol.tlsDone = true;
-          this.log("protocol", "TLS keys ready");
+          this.log("protocol", "TLS keys ready", {
+            layer: "application",
+            eventType: "tls_keys_ready",
+            status: "received",
+            trustState: "encrypted",
+          });
           break;
         case "http_request":
           this.protocol.httpRequestSent = true;
           this.appReady = true;
-          this.log("protocol", "HTTP GET /login");
+          this.log("protocol", "HTTP GET /login", {
+            layer: "application",
+            eventType: "http_request",
+            status: "sent",
+            vulnerability: "Plain HTTP can be intercepted and modified.",
+            attackType: "MITM",
+            mitigation: "Enforce HTTPS/TLS for confidentiality and integrity.",
+            trustState: this.protocol.tlsDone ? "encrypted" : "untrusted",
+          });
           this.enqueueNarrative({
             id: "http_exchange",
             layer: "application",
@@ -580,7 +711,15 @@ export class CanvasSimulation {
           break;
         case "http_response":
           this.protocol.httpResponseReceived = true;
-          this.log("protocol", "HTTP 200 OK");
+          this.log("protocol", "HTTP 200 OK", {
+            layer: "application",
+            eventType: "http_response",
+            status: "received",
+            vulnerability: "Session cookies can be stolen if not protected.",
+            attackType: "Session hijacking",
+            mitigation: "Use Secure + HttpOnly + SameSite cookie flags and rotate session IDs.",
+            trustState: this.protocol.tlsDone ? "encrypted" : "untrusted",
+          });
           this.enqueueNarrative({
             id: "cookie_state",
             layer: "application",
@@ -589,6 +728,27 @@ export class CanvasSimulation {
             packetState: "Set-Cookie: session=...",
             location: "SERVER",
           });
+          if (this.runtime.attackSimulation === "session_hijacking") {
+            this.securityEvents += 1;
+            this.triggeredAttacks.add("Session hijacking");
+            this.log("protocol", "Session cookie replay detected", {
+              layer: "application",
+              eventType: "session_hijack",
+              status: "received",
+              vulnerability: "Session tokens can be reused by attackers.",
+              attackType: "Session hijacking",
+              mitigation: "Use HttpOnly/Secure/SameSite cookies with token binding and rotation.",
+              trustState: this.protocol.tlsDone ? "encrypted" : "untrusted",
+            });
+            this.enqueueNarrative({
+              id: "cookie_state",
+              layer: "application",
+              explanation:
+                "Attack simulation: a stolen session cookie was replayed. Strong cookie flags and rotation reduce hijack risk.",
+              packetState: "Session replay attempt",
+              location: "SERVER",
+            });
+          }
           break;
       }
     }
@@ -670,15 +830,20 @@ export class CanvasSimulation {
       lifecycle: gen > 0 ? "retransmitting" : "created",
       lossLink: undefined,
       lossCause: undefined,
+      trustState: this.protocol.tlsDone ? "encrypted" : "untrusted",
     };
     this.packets.push(packet);
     this.totalSent += 1;
     this.totalBytesSent += s.pl.length;
-    this.log("sent", `DATA seq=${s.seq}..${s.seq + s.pl.length} seg#${s.index + 1}`, {
+    this.log("sent", "Packet sent to server", {
       packetId: packet.id,
       seq: s.seq,
       ack: 0,
       path: "CLIENT->R1->R2->SERVER",
+      layer: "tcp",
+      eventType: "packet_sent",
+      status: "sent",
+      trustState: packet.trustState,
     });
   }
 
@@ -703,13 +868,18 @@ export class CanvasSimulation {
       lifecycle: "created",
       lossLink: undefined,
       lossCause: undefined,
+      trustState: this.protocol.tlsDone ? "encrypted" : "verified",
     };
     this.packets.push(packet);
-    this.log("ack", `ACK ${ack} for seg#${segmentIndex + 1}`, {
+    this.log("ack", "Acknowledgment returned", {
       packetId: packet.id,
       seq: 0,
       ack,
       path: "SERVER->R2->R1->CLIENT",
+      layer: "tcp",
+      eventType: "ack_sent",
+      status: "received",
+      trustState: packet.trustState,
     });
     this.enqueueNarrative({
       id: "ack_return",
@@ -777,6 +947,10 @@ export class CanvasSimulation {
           seq: r.seg.seq,
           ack: 0,
           path: "CLIENT->R1->R2->SERVER",
+          layer: "tcp",
+          eventType: "retransmission",
+          status: "retransmitted",
+          trustState: this.protocol.tlsDone ? "encrypted" : "verified",
         },
       );
       if (r.fromDataLoss) this.inFlight += 1;
@@ -856,6 +1030,10 @@ export class CanvasSimulation {
       seq: p.seq,
       ack: p.ack,
       path: lossLink,
+      layer: "ip",
+      eventType: "packet_dropped",
+      status: "lost",
+      trustState: p.trustState,
     });
 
     if (p.kind === "data" && this.config.useTcp) {

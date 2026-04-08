@@ -31,6 +31,7 @@ export function SidePanel({
           <div key={r.id} className={`border-b border-white/5 py-1 ${kindColor[r.kind]}`}>
             <span className="text-slate-600">{r.t.toFixed(2)}s</span>{" "}
             <span className="text-slate-500">{r.kind.toUpperCase()}</span> {r.text}
+            {r.attackType && <span className="text-rose-300"> [attack: {r.attackType}]</span>}
             {advanced && r.packetId && <span className="text-slate-600"> [{r.packetId}]</span>}
             {advanced && (r.seq !== undefined || r.ack !== undefined) && (
               <span className="text-slate-500">
@@ -39,6 +40,9 @@ export function SidePanel({
               </span>
             )}
             {advanced && r.path && <span className="text-slate-600"> path={r.path}</span>}
+            {advanced && r.vulnerability && <div className="text-rose-200/90">vuln: {r.vulnerability}</div>}
+            {advanced && r.mitigation && <div className="text-emerald-200/90">mitigation: {r.mitigation}</div>}
+            {advanced && r.trustState && <div className="text-cyan-200/80">trust: {r.trustState}</div>}
           </div>
         ))}
       </div>

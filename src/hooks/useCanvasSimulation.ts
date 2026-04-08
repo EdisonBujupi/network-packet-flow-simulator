@@ -12,6 +12,7 @@ const defaultConfig: SimulationConfig = {
   useTcp: true,
   checksumEnabled: true,
   arpanetMode: false,
+  scenario: "normal_flow",
 };
 
 export function useCanvasSimulation() {
@@ -27,6 +28,7 @@ export function useCanvasSimulation() {
     narrativeEnabled: true,
     autoPlay: true,
     advancedMode: false,
+    attackSimulation: "none",
   });
   /** Throttled UI refresh for sidebar (canvas draws every frame independently) */
   const [ui, setUi] = useState(0);
@@ -104,7 +106,22 @@ export function useCanvasSimulation() {
   const exportLogs = useCallback(() => {
     const snap = simRef.current?.snapshot();
     if (!snap) return;
-    const blob = new Blob([JSON.stringify(snap.timeline, null, 2)], {
+    const structured = snap.timeline.map((e) => ({
+      timestamp: e.t,
+      packet_id: e.packetId ?? null,
+      layer: e.layer ?? null,
+      event_type: e.eventType ?? e.kind,
+      status: e.status ?? null,
+      text: e.text,
+      seq: e.seq ?? null,
+      ack: e.ack ?? null,
+      path: e.path ?? null,
+      vulnerability: e.vulnerability ?? null,
+      attack_type: e.attackType ?? null,
+      mitigation: e.mitigation ?? null,
+      trust_state: e.trustState ?? null,
+    }));
+    const blob = new Blob([JSON.stringify(structured, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);

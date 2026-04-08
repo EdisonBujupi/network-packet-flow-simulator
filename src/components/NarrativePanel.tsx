@@ -56,6 +56,14 @@ export function NarrativePanel({
 }) {
   const recommended = step?.layer ?? activeLayer;
   const body = step ? explainForLayer(step, activeLayer) : null;
+  const nextAction =
+    focusedPacket?.lifecycle === "lost"
+      ? "next TCP waits for ACK timeout and resends."
+      : focusedPacket?.lifecycle === "retransmitting"
+        ? "next the retransmitted segment continues toward the server."
+        : focusedPacket?.lifecycle === "delivered"
+          ? "next the server sends an acknowledgment."
+          : "next the packet moves to the next hop.";
 
   return (
     <section className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)]/95 px-4 py-3">
@@ -73,7 +81,9 @@ export function NarrativePanel({
             <>
               <p className="text-sm text-slate-200">
                 <span className="font-semibold text-cyan-300 uppercase">{activeLayer}</span>: Packet is at{" "}
-                <span className="font-semibold text-white">{step.location}</span> and {body?.toLowerCase()}
+                <span className="font-semibold text-white">{step.location}</span>, came from{" "}
+                <span className="font-semibold text-white">{focusedPacket?.origin ?? "client"}</span>, is{" "}
+                {body?.toLowerCase()} and {nextAction}
               </p>
               {advanced && (
                 <p className="mt-1 text-xs font-mono text-slate-500">

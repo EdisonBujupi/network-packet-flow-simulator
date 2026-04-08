@@ -74,6 +74,13 @@ export interface SimulationConfig {
   checksumEnabled: boolean;
   /** Early network: partial delivery, no TCP recovery */
   arpanetMode: boolean;
+  /** Reproducible deterministic lab scenario */
+  scenario:
+    | "normal_flow"
+    | "packet_loss"
+    | "high_latency"
+    | "dns_poisoning"
+    | "tls_failure";
 }
 
 export interface SimulationResult {

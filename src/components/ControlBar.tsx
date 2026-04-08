@@ -144,6 +144,38 @@ export function ControlBar({
         />
         Advanced
       </label>
+      <label className="flex items-center gap-1 text-[11px] text-slate-400">
+        Scenario
+        <select
+          value={config.scenario}
+          disabled={busy}
+          onChange={(e) => setConfig({ scenario: e.target.value as SimulationConfig["scenario"] })}
+          className="rounded border border-slate-700 bg-slate-950 px-1 py-1 text-[11px] text-cyan-100"
+        >
+          <option value="normal_flow">Normal flow</option>
+          <option value="packet_loss">Packet loss</option>
+          <option value="high_latency">High latency</option>
+          <option value="dns_poisoning">DNS poisoning</option>
+          <option value="tls_failure">TLS failure</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-1 text-[11px] text-slate-400">
+        Attack
+        <select
+          value={runtime.attackSimulation}
+          onChange={(e) =>
+            setRuntimeControl({
+              attackSimulation: e.target.value as RuntimeControls["attackSimulation"],
+            })
+          }
+          className="rounded border border-slate-700 bg-slate-950 px-1 py-1 text-[11px] text-cyan-100"
+        >
+          <option value="none">None</option>
+          <option value="mitm">MITM</option>
+          <option value="dns_poisoning">DNS poisoning</option>
+          <option value="session_hijacking">Session hijacking</option>
+        </select>
+      </label>
       <label className="flex items-center gap-2 text-[11px] text-slate-400">
         <button
           type="button"

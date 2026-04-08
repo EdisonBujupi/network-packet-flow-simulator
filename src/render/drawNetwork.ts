@@ -35,6 +35,12 @@ function packetLabel(p: VisualPacket, mode: LayerMode): string {
   return "Packet in route";
 }
 
+function trustColor(state: VisualPacket["trustState"]): string {
+  if (state === "encrypted") return "rgba(34,197,94,0.95)";
+  if (state === "verified") return "rgba(59,130,246,0.95)";
+  return "rgba(244,63,94,0.95)";
+}
+
 function packetPath(p: VisualPacket): string {
   return p.kind === "data"
     ? "CLIENT->R1->R2->SERVER"
@@ -255,10 +261,10 @@ export function drawNetwork(
       ctx.strokeStyle = "rgba(251,191,36,0.95)";
     } else if (p.kind === "ack") {
       ctx.fillStyle = "rgba(167,139,250,0.25)";
-      ctx.strokeStyle = "rgba(167,139,250,0.95)";
+      ctx.strokeStyle = trustColor(p.trustState);
     } else {
       ctx.fillStyle = "rgba(34,211,238,0.2)";
-      ctx.strokeStyle = "rgba(34,211,238,0.95)";
+      ctx.strokeStyle = trustColor(p.trustState);
     }
 
     const advanced = snap.runtime.advancedMode;
